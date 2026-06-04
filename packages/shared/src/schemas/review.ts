@@ -18,6 +18,23 @@ export const ReviewFindingSchema = z.object({
   suggestedTests: z.string().optional()
 });
 
+export const ReviewPlanTaskSchema = z.object({
+  id: z.string(),
+  agent: z.string(),
+  files: z.array(z.string()),
+  goal: z.string()
+});
+
+export const ReviewPlanSchema = z.object({
+  planId: z.string(),
+  tasks: z.array(ReviewPlanTaskSchema),
+  humanGateRequired: z.boolean().default(false)
+});
+
+export const ReviewFindingListSchema = z.object({
+  findings: z.array(ReviewFindingSchema)
+});
+
 export const AgentTaskMessageSchema = z.object({
   taskId: z.string(),
   reviewRunId: z.string(),
@@ -43,4 +60,7 @@ export const AgentTaskMessageSchema = z.object({
 });
 
 export type ReviewFinding = z.infer<typeof ReviewFindingSchema>;
+export type ReviewFindingList = z.infer<typeof ReviewFindingListSchema>;
+export type ReviewPlan = z.infer<typeof ReviewPlanSchema>;
+export type ReviewPlanTask = z.infer<typeof ReviewPlanTaskSchema>;
 export type AgentTaskMessage = z.infer<typeof AgentTaskMessageSchema>;
