@@ -22,8 +22,11 @@ model PullRequest {
   number       Int
   title        String
   state        String
+  body         String?
   headSha      String
   baseSha      String
+  headRef      String
+  baseRef      String
   authorLogin  String?
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
@@ -36,6 +39,7 @@ model PullRequest {
 model ReviewRun {
   id            String         @id @default(cuid())
   pullRequestId String
+  deliveryId    String         @unique
   headSha       String
   status        ReviewRunStatus @default(QUEUED)
   mode          ReviewRunMode   @default(COUNCIL)
@@ -44,8 +48,39 @@ model ReviewRun {
   createdAt     DateTime       @default(now())
   pullRequest   PullRequest    @relation(fields: [pullRequestId], references: [id])
   agentTasks    AgentTask[]
+  changedFiles  PullRequestFile[]
   findings      Finding[]
   modelCalls    ModelCall[]
+}
+
+model PullRequestFile {
+  id           String      @id @default(cuid())
+  reviewRunId  String
+  path         String
+  previousPath String?
+  status       String
+  additions    Int
+  deletions    Int
+  changes      Int
+  patch        String?
+  createdAt    DateTime    @default(now())
+  reviewRun    ReviewRun   @relation(fields: [reviewRunId], references: [id], onDelete: Cascade)
+  hunks        DiffHunk[]
+
+  @@unique([reviewRunId, path])
+}
+
+model DiffHunk {
+  id            String          @id @default(cuid())
+  fileId        String
+  header        String
+  oldStart      Int?
+  oldLines      Int?
+  newStart      Int?
+  newLines      Int?
+  body          String
+  createdAt     DateTime        @default(now())
+  file          PullRequestFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
 }
 
 model AgentTask {

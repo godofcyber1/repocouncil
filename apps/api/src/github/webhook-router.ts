@@ -47,5 +47,12 @@ function verifyGitHubSignature(body: Buffer, signatureHeader: string | undefined
     "sha256=" +
     crypto.createHmac("sha256", config.githubWebhookSecret).update(body).digest("hex");
 
-  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signatureHeader));
+  const expectedBuffer = Buffer.from(expected);
+  const actualBuffer = Buffer.from(signatureHeader);
+
+  if (expectedBuffer.length !== actualBuffer.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(expectedBuffer, actualBuffer);
 }

@@ -1,0 +1,32 @@
+{
+  "action": "opened",
+  "repository": {
+    "id": 123456,
+    "name": "repocouncil-demo",
+    "full_name": "godofcyber1/repocouncil-demo",
+    "owner": {
+      "login": "godofcyber1"
+    }
+  },
+  "pull_request": {
+    "number": 12,
+    "title": "Add finding scoring helper",
+    "state": "open",
+    "body": "Demo pull request for local replay.",
+    "draft": false,
+    "head": {
+      "sha": "abc123",
+      "ref": "feature/scoring"
+    },
+    "base": {
+      "sha": "def456",
+      "ref": "main"
+    },
+    "user": {
+      "login": "demo-author"
+    }
+  },
+  "installation": {
+    "id": 987654
+  }
+}
