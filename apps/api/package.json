@@ -13,6 +13,7 @@
     "prisma:migrate": "prisma migrate dev",
     "replay:webhook": "tsx src/scripts/replay-webhook.ts",
     "review:baseline": "tsx src/scripts/run-baseline-review.ts",
+    "test": "vitest run",
     "validate:webhook-fixture": "tsx src/scripts/validate-webhook-fixture.ts"
   },
   "dependencies": {
@@ -29,6 +30,7 @@
     "@types/node": "^22.10.2",
     "prisma": "^6.0.0",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
   }
 }

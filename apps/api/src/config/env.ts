@@ -8,7 +8,10 @@ const envSchema = z.object({
   GITHUB_APP_PRIVATE_KEY: z.string().min(1).optional(),
   GITHUB_WEBHOOK_SECRET: z.string().min(1).optional(),
   QWEN_API_KEY: z.string().min(1).optional(),
-  QWEN_BASE_URL: z.string().url().optional()
+  QWEN_BASE_URL: z.string().url().optional(),
+  QWEN_MODEL_PLANNER: z.string().min(1).optional(),
+  QWEN_MODEL_REVIEWER: z.string().min(1).optional(),
+  QWEN_MODEL_REFEREE: z.string().min(1).optional()
 });
 
 const parsed = envSchema.parse(process.env);
@@ -21,5 +24,8 @@ export const config = {
   githubAppPrivateKey: parsed.GITHUB_APP_PRIVATE_KEY?.replace(/\\n/g, "\n"),
   githubWebhookSecret: parsed.GITHUB_WEBHOOK_SECRET,
   qwenApiKey: parsed.QWEN_API_KEY,
-  qwenBaseUrl: parsed.QWEN_BASE_URL
+  qwenBaseUrl: parsed.QWEN_BASE_URL,
+  qwenModelPlanner: parsed.QWEN_MODEL_PLANNER,
+  qwenModelReviewer: parsed.QWEN_MODEL_REVIEWER,
+  qwenModelReferee: parsed.QWEN_MODEL_REFEREE
 } as const;

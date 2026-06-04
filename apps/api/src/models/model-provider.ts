@@ -7,6 +7,7 @@ export type ModelJsonRequest = {
   model: string;
   messages: ModelMessage[];
   schemaName: string;
+  temperature?: number;
 };
 
 export type ModelJsonResponse<T> = {
