@@ -69,6 +69,18 @@ Replay the webhook fixture into the configured database:
 npm run replay:webhook
 ```
 
+Replay the fixture and immediately execute the baseline review:
+
+```bash
+npm run replay:webhook -- --execute
+```
+
+Execute an existing review run:
+
+```bash
+npm run execute:review-run -- <reviewRunId>
+```
+
 ## Public Architecture
 
 See [docs/public/architecture.md](./docs/public/architecture.md) for the public architecture overview.

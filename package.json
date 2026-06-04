@@ -14,6 +14,7 @@
     "db:migrate": "npm run prisma:migrate -w @repocouncil/api",
     "dev:api": "npm run dev -w @repocouncil/api",
     "dev:web": "npm run dev -w @repocouncil/web",
+    "execute:review-run": "npm run execute:review-run -w @repocouncil/api --",
     "lint": "npm run lint --workspaces --if-present",
     "replay:webhook": "npm run replay:webhook -w @repocouncil/api",
     "review:baseline": "npm run build -w @repocouncil/shared && npm run review:baseline -w @repocouncil/api",

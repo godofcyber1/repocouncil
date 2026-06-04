@@ -2,9 +2,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { handlePullRequestEvent } from "../github/webhook-service.js";
 import type { GitHubClient } from "../github/github-client.js";
+import { executeReviewRun } from "../review-runs/review-runner.js";
 
 const fixturePath =
-  process.argv[2] ?? path.resolve("fixtures/pull-request.opened.json");
+  process.argv.find((arg) => arg.endsWith(".json")) ?? path.resolve("fixtures/pull-request.opened.json");
+const shouldExecute = process.argv.includes("--execute");
 
 const payload = JSON.parse(await fs.readFile(fixturePath, "utf8")) as unknown;
 
@@ -38,4 +40,9 @@ const result = await handlePullRequestEvent(payload, "local-delivery-001", {
   github: fixtureGitHubClient
 });
 
-console.log(JSON.stringify(result, null, 2));
+if (shouldExecute && result.accepted && "reviewRunId" in result) {
+  const execution = await executeReviewRun(result.reviewRunId);
+  console.log(JSON.stringify({ webhook: result, execution }, null, 2));
+} else {
+  console.log(JSON.stringify(result, null, 2));
+}
