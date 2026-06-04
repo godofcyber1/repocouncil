@@ -1,0 +1,22 @@
+{
+  "name": "repocouncil",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Multi-agent GitHub PR review system for the Qwen Cloud hackathon.",
+  "license": "MIT",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @repocouncil/shared && npm run build -w @repocouncil/api && npm run build -w @repocouncil/web",
+    "dev:api": "npm run dev -w @repocouncil/api",
+    "dev:web": "npm run dev -w @repocouncil/web",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run build -w @repocouncil/shared && npm run typecheck -w @repocouncil/api && npm run typecheck -w @repocouncil/web",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

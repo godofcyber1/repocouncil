@@ -1,0 +1,103 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Repository {
+  id             String        @id @default(cuid())
+  fullName       String        @unique
+  installationId String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  pullRequests   PullRequest[]
+}
+
+model PullRequest {
+  id           String       @id @default(cuid())
+  repositoryId String
+  number       Int
+  title        String
+  state        String
+  headSha      String
+  baseSha      String
+  authorLogin  String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  repository   Repository   @relation(fields: [repositoryId], references: [id])
+  reviewRuns   ReviewRun[]
+
+  @@unique([repositoryId, number])
+}
+
+model ReviewRun {
+  id            String         @id @default(cuid())
+  pullRequestId String
+  headSha       String
+  status        ReviewRunStatus @default(QUEUED)
+  mode          ReviewRunMode   @default(COUNCIL)
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime       @default(now())
+  pullRequest   PullRequest    @relation(fields: [pullRequestId], references: [id])
+  agentTasks    AgentTask[]
+  findings      Finding[]
+  modelCalls    ModelCall[]
+}
+
+model AgentTask {
+  id          String      @id @default(cuid())
+  reviewRunId String
+  agent       String
+  status      String      @default("queued")
+  input       Json
+  output      Json?
+  createdAt   DateTime    @default(now())
+  completedAt DateTime?
+  reviewRun   ReviewRun   @relation(fields: [reviewRunId], references: [id])
+}
+
+model Finding {
+  id             String    @id @default(cuid())
+  reviewRunId    String
+  title          String
+  body           String
+  filePath       String
+  startLine      Int?
+  endLine        Int?
+  severity       String
+  confidence     Float
+  category       String
+  evidence       Json
+  suggestedPatch String?
+  suggestedTests String?
+  createdAt      DateTime  @default(now())
+  reviewRun      ReviewRun @relation(fields: [reviewRunId], references: [id])
+}
+
+model ModelCall {
+  id           String    @id @default(cuid())
+  reviewRunId  String
+  provider     String
+  model        String
+  inputTokens  Int?
+  outputTokens Int?
+  latencyMs    Int?
+  createdAt    DateTime  @default(now())
+  reviewRun    ReviewRun @relation(fields: [reviewRunId], references: [id])
+}
+
+enum ReviewRunStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum ReviewRunMode {
+  BASELINE
+  COUNCIL
+}

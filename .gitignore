@@ -1,0 +1,48 @@
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+*.p8
+
+# Private planning and deployment notes
+PLANS.md
+repocouncil.md
+repocouncli概述.md
+docs/private/
+*.local.md
+deployment-notes/
+
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+coverage/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local databases and caches
+*.sqlite
+*.sqlite3
+.prisma/
+.turbo/
+.cache/
+.npm-cache/
+.tmp/
+.ssh/
+*.tsbuildinfo
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
