@@ -4,7 +4,7 @@ import { handlePullRequestEvent } from "../github/webhook-service.js";
 import type { GitHubClient } from "../github/github-client.js";
 
 const fixturePath =
-  process.argv[2] ?? path.resolve("apps/api/fixtures/pull-request.opened.json");
+  process.argv[2] ?? path.resolve("fixtures/pull-request.opened.json");
 
 const payload = JSON.parse(await fs.readFile(fixturePath, "utf8")) as unknown;
 

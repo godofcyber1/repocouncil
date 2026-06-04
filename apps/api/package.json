@@ -10,7 +10,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "replay:webhook": "tsx src/scripts/replay-webhook.ts"
+    "replay:webhook": "tsx src/scripts/replay-webhook.ts",
+    "validate:webhook-fixture": "tsx src/scripts/validate-webhook-fixture.ts"
   },
   "dependencies": {
     "@langchain/langgraph": "^0.2.0",

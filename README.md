@@ -31,6 +31,44 @@ Do not commit secrets. `.env`, `.env.*`, key files, and `docs/private/` are igno
 
 Copy `.env.example` to `.env` locally when the application skeleton is ready to run.
 
+## Local Development
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+Generate the Prisma client:
+
+```bash
+npm run db:generate
+```
+
+Start PostgreSQL when Docker is available:
+
+```bash
+docker compose up -d postgres
+```
+
+Apply migrations:
+
+```bash
+npm run db:migrate
+```
+
+Validate the webhook fixture without a database:
+
+```bash
+npm run validate:webhook-fixture
+```
+
+Replay the webhook fixture into the configured database:
+
+```bash
+npm run replay:webhook
+```
+
 ## Public Architecture
 
 See [docs/public/architecture.md](./docs/public/architecture.md) for the public architecture overview.
