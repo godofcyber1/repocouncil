@@ -2,12 +2,14 @@ import type { PrismaClient } from "@prisma/client";
 import type { ReviewFinding } from "@repocouncil/shared";
 import { prisma } from "../db/prisma.js";
 import { runReviewGraph, type ReviewGraphResult } from "../langgraph/review-graph.js";
-import { MockModelProvider } from "../models/mock-provider.js";
 import type { ModelProvider } from "../models/model-provider.js";
+import { createModelProvider } from "../models/provider-factory.js";
 
 export type ExecuteReviewRunDeps = {
   db?: PrismaClient;
   modelProvider?: ModelProvider;
+  model?: string;
+  providerKind?: string;
 };
 
 export type ExecuteReviewRunResult = {
@@ -22,7 +24,13 @@ export async function executeReviewRun(
   deps: ExecuteReviewRunDeps = {}
 ): Promise<ExecuteReviewRunResult> {
   const db = deps.db ?? prisma;
-  const modelProvider = deps.modelProvider ?? new MockModelProvider();
+  const resolvedProvider = deps.modelProvider
+    ? {
+        kind: deps.providerKind ?? "custom",
+        model: deps.model ?? "custom",
+        provider: deps.modelProvider
+      }
+    : createModelProvider();
 
   const reviewRun = await db.reviewRun.findUnique({
     where: { id: reviewRunId },
@@ -61,11 +69,15 @@ export async function executeReviewRun(
         }))
       },
       {
-        modelProvider
+        modelProvider: resolvedProvider.provider,
+        model: resolvedProvider.model
       }
     );
 
-    await persistGraphResult(db, reviewRun.id, graphResult);
+    await persistGraphResult(db, reviewRun.id, graphResult, {
+      provider: resolvedProvider.kind,
+      model: resolvedProvider.model
+    });
 
     await db.reviewRun.update({
       where: { id: reviewRun.id },
@@ -97,7 +109,11 @@ export async function executeReviewRun(
 async function persistGraphResult(
   db: PrismaClient,
   reviewRunId: string,
-  graphResult: ReviewGraphResult
+  graphResult: ReviewGraphResult,
+  modelCall: {
+    provider: string;
+    model: string;
+  }
 ) {
   await db.$transaction(async (tx) => {
     await tx.finding.deleteMany({
@@ -145,8 +161,8 @@ async function persistGraphResult(
     await tx.modelCall.create({
       data: {
         reviewRunId,
-        provider: "mock",
-        model: "mock-reviewer",
+        provider: modelCall.provider,
+        model: modelCall.model,
         inputTokens: 384,
         outputTokens: 192,
         latencyMs: null
