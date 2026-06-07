@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export const dynamic = "force-dynamic";
 
 type ReviewRunSummary = {
@@ -53,7 +55,9 @@ export default async function HomePage() {
             {runs.map((run) => (
               <article className="runRow" key={run.id}>
                 <div className="runMain">
-                  <strong>{run.repository}</strong>
+                  <strong>
+                    <Link href={`/runs/${run.id}`}>{run.repository}</Link>
+                  </strong>
                   <p>
                     PR #{run.pullNumber} - {run.title}
                   </p>
