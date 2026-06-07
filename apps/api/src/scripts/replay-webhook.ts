@@ -33,6 +33,12 @@ const fixtureGitHubClient: GitHubClient = {
         ].join("\n")
       }
     ];
+  },
+  async createCheckRun() {
+    throw new Error("Fixture GitHub client does not publish check runs.");
+  },
+  async createIssueComment() {
+    throw new Error("Fixture GitHub client does not publish issue comments.");
   }
 };
 
