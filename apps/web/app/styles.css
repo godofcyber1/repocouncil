@@ -31,6 +31,34 @@ button {
   padding: 0 16px;
 }
 
+.statusPill,
+.runStatus {
+  border: 1px solid var(--line);
+  color: var(--muted);
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 800;
+  justify-content: center;
+  min-width: 96px;
+  padding: 8px 10px;
+  text-transform: uppercase;
+}
+
+.runStatus.completed {
+  border-color: #23966f;
+  color: #137a57;
+}
+
+.runStatus.failed {
+  border-color: #c94444;
+  color: #a52a2a;
+}
+
+.runStatus.running {
+  border-color: #b98212;
+  color: #8a610c;
+}
+
 .shell {
   margin: 0 auto;
   max-width: 1120px;
@@ -106,7 +134,7 @@ h2 {
   align-items: center;
   display: grid;
   gap: 16px;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   min-height: 64px;
   padding: 16px 18px;
 }
@@ -117,6 +145,26 @@ h2 {
 
 .runRow + .runRow {
   border-top: 1px solid var(--line);
+}
+
+.runMain {
+  min-width: 0;
+}
+
+.runMain strong,
+.runMain p {
+  overflow-wrap: anywhere;
+}
+
+.emptyState {
+  display: grid;
+  gap: 8px;
+  min-height: 120px;
+  padding: 24px 18px;
+}
+
+.emptyState p {
+  color: var(--muted);
 }
 
 @media (max-width: 760px) {
@@ -133,5 +181,11 @@ h2 {
 
   .metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .statusPill,
+  .runStatus {
+    justify-content: flex-start;
+    min-width: 0;
   }
 }
