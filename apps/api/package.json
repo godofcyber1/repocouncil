@@ -13,6 +13,7 @@
     "prisma:migrate": "prisma migrate dev",
     "publish:review-run": "tsx src/scripts/publish-review-run.ts",
     "replay:webhook": "tsx src/scripts/replay-webhook.ts",
+    "rerun:review-run": "tsx src/scripts/rerun-review-run.ts",
     "review:baseline": "tsx src/scripts/run-baseline-review.ts",
     "test": "vitest run",
     "validate:webhook-fixture": "tsx src/scripts/validate-webhook-fixture.ts"

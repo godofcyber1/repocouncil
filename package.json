@@ -18,6 +18,7 @@
     "lint": "npm run lint --workspaces --if-present",
     "publish:review-run": "npm run publish:review-run -w @repocouncil/api --",
     "replay:webhook": "npm run replay:webhook -w @repocouncil/api",
+    "rerun:review-run": "npm run rerun:review-run -w @repocouncil/api --",
     "review:baseline": "npm run build -w @repocouncil/shared && npm run review:baseline -w @repocouncil/api",
     "typecheck": "npm run build -w @repocouncil/shared && npm run typecheck -w @repocouncil/api && npm run typecheck -w @repocouncil/web",
     "validate:webhook-fixture": "npm run validate:webhook-fixture -w @repocouncil/api",
