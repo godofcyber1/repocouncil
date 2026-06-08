@@ -38,6 +38,15 @@ reviewRunRouter.post("/:id/rerun", async (req, res) => {
   }
 });
 
+reviewRunRouter.post("/:id/execute", async (req, res) => {
+  try {
+    const execution = await executeReviewRun(req.params.id);
+    res.status(202).json({ execution });
+  } catch (error) {
+    sendRouteError(res, error);
+  }
+});
+
 reviewRunRouter.post("/:id/publish", async (req, res) => {
   try {
     const result = await publishReviewRunToGitHub(req.params.id);

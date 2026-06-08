@@ -110,6 +110,12 @@ export default async function ReviewRunPage({ params, searchParams }: PageProps)
             <input name="reviewRunId" type="hidden" value={run.id} />
             <button type="submit">Rerun</button>
           </form>
+          <form action={executeReviewRunAction}>
+            <input name="reviewRunId" type="hidden" value={run.id} />
+            <button className="secondaryButton" type="submit">
+              Execute
+            </button>
+          </form>
           <form action={publishReviewRunAction}>
             <input name="reviewRunId" type="hidden" value={run.id} />
             <button className="secondaryButton" type="submit">
@@ -302,6 +308,24 @@ async function publishReviewRunAction(formData: FormData) {
   redirect(`/runs/${encodeURIComponent(reviewRunId)}?action=published`);
 }
 
+async function executeReviewRunAction(formData: FormData) {
+  "use server";
+
+  const reviewRunId = readReviewRunId(formData);
+  const response = await fetch(
+    `${getApiBaseUrl()}/review-runs/${encodeURIComponent(reviewRunId)}/execute`,
+    {
+      method: "POST"
+    }
+  );
+
+  if (!response.ok) {
+    redirect(`/runs/${encodeURIComponent(reviewRunId)}?action=execute_failed`);
+  }
+
+  redirect(`/runs/${encodeURIComponent(reviewRunId)}?action=executed`);
+}
+
 function readReviewRunId(formData: FormData): string {
   const value = formData.get("reviewRunId");
 
@@ -325,12 +349,20 @@ function getActionMessage(action: string | undefined): { kind: string; text: str
     return { kind: "success", text: "Published to GitHub." };
   }
 
+  if (action === "executed") {
+    return { kind: "success", text: "Review run executed." };
+  }
+
   if (action === "rerun_failed") {
     return { kind: "failure", text: "Rerun failed." };
   }
 
   if (action === "publish_failed") {
     return { kind: "failure", text: "Publish failed." };
+  }
+
+  if (action === "execute_failed") {
+    return { kind: "failure", text: "Execute failed." };
   }
 
   return null;
