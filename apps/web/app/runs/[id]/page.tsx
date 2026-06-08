@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -65,10 +66,13 @@ type PageProps = {
   params: Promise<{
     id: string;
   }>;
+  searchParams: Promise<{
+    action?: string;
+  }>;
 };
 
-export default async function ReviewRunPage({ params }: PageProps) {
-  const { id } = await params;
+export default async function ReviewRunPage({ params, searchParams }: PageProps) {
+  const [{ id }, query] = await Promise.all([params, searchParams]);
   const result = await fetchReviewRun(id);
 
   if (!result.run) {
@@ -86,6 +90,7 @@ export default async function ReviewRunPage({ params }: PageProps) {
   }
 
   const run = result.run;
+  const actionMessage = getActionMessage(query.action);
 
   return (
     <main className="shell">
@@ -99,8 +104,22 @@ export default async function ReviewRunPage({ params }: PageProps) {
           <h1>PR #{run.pullNumber}</h1>
           <p className="mutedText">{run.title}</p>
         </div>
-        <Status value={run.status} />
+        <div className="detailActions">
+          <Status value={run.status} />
+          <form action={rerunReviewRunAction}>
+            <input name="reviewRunId" type="hidden" value={run.id} />
+            <button type="submit">Rerun</button>
+          </form>
+          <form action={publishReviewRunAction}>
+            <input name="reviewRunId" type="hidden" value={run.id} />
+            <button className="secondaryButton" type="submit">
+              Publish to GitHub
+            </button>
+          </form>
+        </div>
       </section>
+
+      {actionMessage ? <p className={`actionMessage ${actionMessage.kind}`}>{actionMessage.text}</p> : null}
 
       <section className="metrics" aria-label="Review run metrics">
         <Metric label="Findings" value={run.findings.toString()} />
@@ -178,10 +197,8 @@ export default async function ReviewRunPage({ params }: PageProps) {
 }
 
 async function fetchReviewRun(id: string): Promise<{ run: ReviewRunDetail | null; error: string }> {
-  const apiBaseUrl = process.env.API_BASE_URL ?? "http://127.0.0.1:4000";
-
   try {
-    const response = await fetch(`${apiBaseUrl}/review-runs/${id}`, {
+    const response = await fetch(`${getApiBaseUrl()}/review-runs/${encodeURIComponent(id)}`, {
       cache: "no-store"
     });
 
@@ -240,4 +257,81 @@ function formatLocation(finding: ReviewRunDetail["findingsList"][number]): strin
 
 function formatTokens(inputTokens: number | null, outputTokens: number | null): string {
   return `${inputTokens ?? 0} in / ${outputTokens ?? 0} out`;
+}
+
+async function rerunReviewRunAction(formData: FormData) {
+  "use server";
+
+  const reviewRunId = readReviewRunId(formData);
+  const response = await fetch(
+    `${getApiBaseUrl()}/review-runs/${encodeURIComponent(reviewRunId)}/rerun`,
+    {
+      method: "POST"
+    }
+  );
+
+  if (!response.ok) {
+    redirect(`/runs/${encodeURIComponent(reviewRunId)}?action=rerun_failed`);
+  }
+
+  const data = (await response.json()) as { rerun?: { reviewRunId?: string } };
+  const newReviewRunId = data.rerun?.reviewRunId;
+
+  if (!newReviewRunId) {
+    redirect(`/runs/${encodeURIComponent(reviewRunId)}?action=rerun_failed`);
+  }
+
+  redirect(`/runs/${encodeURIComponent(newReviewRunId)}?action=rerun_created`);
+}
+
+async function publishReviewRunAction(formData: FormData) {
+  "use server";
+
+  const reviewRunId = readReviewRunId(formData);
+  const response = await fetch(
+    `${getApiBaseUrl()}/review-runs/${encodeURIComponent(reviewRunId)}/publish`,
+    {
+      method: "POST"
+    }
+  );
+
+  if (!response.ok) {
+    redirect(`/runs/${encodeURIComponent(reviewRunId)}?action=publish_failed`);
+  }
+
+  redirect(`/runs/${encodeURIComponent(reviewRunId)}?action=published`);
+}
+
+function readReviewRunId(formData: FormData): string {
+  const value = formData.get("reviewRunId");
+
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error("Missing reviewRunId");
+  }
+
+  return value;
+}
+
+function getApiBaseUrl(): string {
+  return process.env.API_BASE_URL ?? "http://127.0.0.1:4000";
+}
+
+function getActionMessage(action: string | undefined): { kind: string; text: string } | null {
+  if (action === "rerun_created") {
+    return { kind: "success", text: "Rerun created." };
+  }
+
+  if (action === "published") {
+    return { kind: "success", text: "Published to GitHub." };
+  }
+
+  if (action === "rerun_failed") {
+    return { kind: "failure", text: "Rerun failed." };
+  }
+
+  if (action === "publish_failed") {
+    return { kind: "failure", text: "Publish failed." };
+  }
+
+  return null;
 }

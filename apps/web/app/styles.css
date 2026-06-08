@@ -36,6 +36,11 @@ button {
   padding: 0 16px;
 }
 
+.secondaryButton {
+  background: var(--panel);
+  color: var(--accent);
+}
+
 .backLink {
   color: var(--accent);
   display: inline-flex;
@@ -150,6 +155,31 @@ h2 {
 
 .detailHeader h1 {
   margin-bottom: 8px;
+}
+
+.detailActions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.actionMessage {
+  border: 1px solid var(--line);
+  font-weight: 800;
+  margin-top: 18px;
+  padding: 12px 14px;
+}
+
+.actionMessage.success {
+  border-color: #23966f;
+  color: #137a57;
+}
+
+.actionMessage.failure {
+  border-color: #c94444;
+  color: #a52a2a;
 }
 
 .mutedText {
@@ -272,6 +302,7 @@ h2 {
   .panelHeader,
   .runRow,
   .detailHeader,
+  .detailActions,
   .findingRow,
   .compactRow,
   .usageRow {
@@ -280,7 +311,8 @@ h2 {
   }
 
   .toolbar,
-  .detailHeader {
+  .detailHeader,
+  .detailActions {
     display: grid;
   }
 
