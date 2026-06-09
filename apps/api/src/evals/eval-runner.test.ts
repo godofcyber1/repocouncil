@@ -9,13 +9,17 @@ describe("evaluateRepoCouncil", () => {
       groundTruth: [
         {
           id: "s1",
+          title: "Webhook signature verification can fail open",
           category: "security",
           severity: "high",
           file: "apps/api/src/github/webhook.ts",
           lineRange: [42, 58],
           expectedSignals: ["signature verification", "fail closed"],
           mustBeDetectedBy: ["security"],
-          acceptableCategories: ["security"]
+          acceptableCategories: ["security"],
+          acceptableSeverities: ["high", "critical"],
+          explanation:
+            "Invalid webhook signatures should stop processing instead of continuing."
         }
       ],
       candidateFindings: [

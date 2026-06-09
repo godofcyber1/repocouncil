@@ -1,0 +1,18 @@
+{
+  "id": "gt-001",
+  "title": "Webhook signature validation fails open",
+  "category": "security",
+  "severity": "high",
+  "file": "apps/api/src/github/webhook.ts",
+  "lineRange": [42, 48],
+  "expectedSignals": [
+    "signature",
+    "invalid signature",
+    "fail closed",
+    "401",
+    "continue"
+  ],
+  "acceptableCategories": ["security"],
+  "acceptableSeverities": ["high", "critical"],
+  "explanation": "Invalid GitHub webhook signatures should stop processing. This PR logs the failure but still persists the webhook."
+}

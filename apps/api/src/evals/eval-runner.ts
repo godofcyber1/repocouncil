@@ -4,13 +4,16 @@ const SeveritySchema = z.enum(["critical", "high", "medium", "low", "info"]);
 
 export const EvalGroundTruthIssueSchema = z.object({
   id: z.string().min(1),
+  title: z.string().min(1),
   category: z.string().min(1),
   severity: SeveritySchema,
   file: z.string().min(1),
   lineRange: z.tuple([z.number().int().positive(), z.number().int().positive()]),
   expectedSignals: z.array(z.string()).default([]),
   mustBeDetectedBy: z.array(z.string()).default([]),
-  acceptableCategories: z.array(z.string()).default([])
+  acceptableCategories: z.array(z.string()).default([]),
+  acceptableSeverities: z.array(SeveritySchema).default([]),
+  explanation: z.string().min(1)
 });
 
 export const EvalFindingSchema = z.object({
@@ -175,6 +178,13 @@ function findingMatchesIssue(finding: EvalFinding, issue: EvalGroundTruthIssue):
     issue.acceptableCategories.length > 0 ? issue.acceptableCategories : [issue.category];
 
   if (!acceptableCategories.includes(finding.category)) {
+    return false;
+  }
+
+  const acceptableSeverities =
+    issue.acceptableSeverities.length > 0 ? issue.acceptableSeverities : [issue.severity];
+
+  if (!acceptableSeverities.includes(finding.severity)) {
     return false;
   }
 
