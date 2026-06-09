@@ -15,6 +15,7 @@
     "replay:webhook": "tsx src/scripts/replay-webhook.ts",
     "rerun:review-run": "tsx src/scripts/rerun-review-run.ts",
     "review:baseline": "tsx src/scripts/run-baseline-review.ts",
+    "set:review-run-mode": "tsx src/scripts/set-review-run-mode.ts",
     "test": "vitest run",
     "validate:webhook-fixture": "tsx src/scripts/validate-webhook-fixture.ts"
   },

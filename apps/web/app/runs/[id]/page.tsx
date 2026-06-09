@@ -152,6 +152,20 @@ export default async function ReviewRunPage({ params, searchParams }: PageProps)
               Execute
             </button>
           </form>
+          <form action={setReviewRunModeAction}>
+            <input name="reviewRunId" type="hidden" value={run.id} />
+            <input name="mode" type="hidden" value="BASELINE" />
+            <button className="secondaryButton" type="submit">
+              Baseline
+            </button>
+          </form>
+          <form action={setReviewRunModeAction}>
+            <input name="reviewRunId" type="hidden" value={run.id} />
+            <input name="mode" type="hidden" value="COUNCIL" />
+            <button className="secondaryButton" type="submit">
+              Council
+            </button>
+          </form>
           <form action={publishReviewRunAction}>
             <input name="reviewRunId" type="hidden" value={run.id} />
             <button className="secondaryButton" type="submit">
@@ -531,6 +545,29 @@ async function executeReviewRunAction(formData: FormData) {
   redirect(`/runs/${encodeURIComponent(reviewRunId)}?action=executed`);
 }
 
+async function setReviewRunModeAction(formData: FormData) {
+  "use server";
+
+  const reviewRunId = readReviewRunId(formData);
+  const mode = readReviewRunMode(formData);
+  const response = await fetch(
+    `${getApiBaseUrl()}/review-runs/${encodeURIComponent(reviewRunId)}/mode`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({ mode })
+    }
+  );
+
+  if (!response.ok) {
+    redirect(`/runs/${encodeURIComponent(reviewRunId)}?action=mode_failed`);
+  }
+
+  redirect(`/runs/${encodeURIComponent(reviewRunId)}?action=mode_updated`);
+}
+
 function readReviewRunId(formData: FormData): string {
   const value = formData.get("reviewRunId");
 
@@ -539,6 +576,16 @@ function readReviewRunId(formData: FormData): string {
   }
 
   return value;
+}
+
+function readReviewRunMode(formData: FormData): "BASELINE" | "COUNCIL" {
+  const value = formData.get("mode");
+
+  if (value === "BASELINE" || value === "COUNCIL") {
+    return value;
+  }
+
+  throw new Error("Missing review run mode");
 }
 
 function getApiBaseUrl(): string {
@@ -558,6 +605,10 @@ function getActionMessage(action: string | undefined): { kind: string; text: str
     return { kind: "success", text: "Review run executed." };
   }
 
+  if (action === "mode_updated") {
+    return { kind: "success", text: "Review mode updated." };
+  }
+
   if (action === "rerun_failed") {
     return { kind: "failure", text: "Rerun failed." };
   }
@@ -568,6 +619,10 @@ function getActionMessage(action: string | undefined): { kind: string; text: str
 
   if (action === "execute_failed") {
     return { kind: "failure", text: "Execute failed." };
+  }
+
+  if (action === "mode_failed") {
+    return { kind: "failure", text: "Mode update failed." };
   }
 
   return null;

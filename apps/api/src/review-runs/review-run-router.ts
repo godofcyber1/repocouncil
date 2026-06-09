@@ -1,10 +1,15 @@
 import express from "express";
+import { z } from "zod";
 import { publishReviewRunToGitHub } from "../github/review-publisher.js";
+import { setReviewRunMode } from "./review-run-mode.js";
 import { executeReviewRun } from "./review-runner.js";
 import { getReviewRunDetail, listReviewRuns } from "./review-run-queries.js";
 import { rerunReviewRun } from "./rerun-review-run.js";
 
 export const reviewRunRouter = express.Router();
+const SetReviewRunModeBodySchema = z.object({
+  mode: z.enum(["BASELINE", "COUNCIL"])
+});
 
 reviewRunRouter.get("/", async (req, res) => {
   const limit = parseLimit(req.query.limit);
@@ -47,6 +52,16 @@ reviewRunRouter.post("/:id/execute", async (req, res) => {
   }
 });
 
+reviewRunRouter.post("/:id/mode", async (req, res) => {
+  try {
+    const body = SetReviewRunModeBodySchema.parse(req.body);
+    const result = await setReviewRunMode(req.params.id, body.mode);
+    res.json({ reviewRun: result });
+  } catch (error) {
+    sendRouteError(res, error);
+  }
+});
+
 reviewRunRouter.post("/:id/publish", async (req, res) => {
   try {
     const result = await publishReviewRunToGitHub(req.params.id);
@@ -71,6 +86,11 @@ function parseLimit(value: unknown): number {
 }
 
 function sendRouteError(res: express.Response, error: unknown) {
+  if (error instanceof z.ZodError) {
+    res.status(400).json({ error: "Invalid request body", details: error.flatten() });
+    return;
+  }
+
   const message = error instanceof Error ? error.message : "Unknown review run error";
 
   if (message.includes("not found")) {
