@@ -6,6 +6,10 @@ describe("evaluateRepoCouncil", () => {
     const result = evaluateRepoCouncil({
       stage: "stage-1",
       mode: "council",
+      experimentKind: "ablation",
+      variant: "council-without-tools",
+      enabledCapabilities: ["council", "deterministic-referee"],
+      disabledCapabilities: ["tool-evidence"],
       groundTruth: [
         {
           id: "s1",
@@ -49,6 +53,10 @@ describe("evaluateRepoCouncil", () => {
     expect(result).toEqual(
       expect.objectContaining({
         fixture_count: 1,
+        experiment_kind: "ablation",
+        variant: "council-without-tools",
+        enabled_capabilities: ["council", "deterministic-referee"],
+        disabled_capabilities: ["tool-evidence"],
         candidate_findings: 2,
         final_findings: 2,
         matched_findings: 1,

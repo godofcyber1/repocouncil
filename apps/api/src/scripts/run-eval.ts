@@ -28,12 +28,20 @@ class CountingModelProvider implements ModelProvider {
 const args = parseArgs(process.argv.slice(2));
 const stage = args.stage ?? "stage-0";
 const mode = args.mode === "council" ? "council" : "baseline";
+const experimentKind = args.experiment === "ablation" ? "ablation" : "stage";
+const variant = args.variant ?? defaultVariant(experimentKind, stage, mode);
+const enabledCapabilities = parseCsvArg(args.enable);
+const disabledCapabilities = parseCsvArg(args.disable);
 const repoRoot = path.resolve("../..");
 const startedAt = Date.now();
 const providerKind = parseProviderKind(args.provider);
 const resolvedProvider = createModelProvider(providerKind ? { kind: providerKind } : {});
 const countedProvider = new CountingModelProvider(resolvedProvider.provider);
 const input = await loadInput();
+input.experimentKind = experimentKind;
+input.variant = variant;
+input.enabledCapabilities = enabledCapabilities;
+input.disabledCapabilities = disabledCapabilities;
 input.metadata = {
   ...input.metadata,
   latencyMs: Date.now() - startedAt,
@@ -45,7 +53,11 @@ const result = evaluateRepoCouncil(input);
 const outputDir = args.outputDir
   ? resolveFromRepoRoot(args.outputDir)
   : path.join(repoRoot, "docs/private/eval-results");
-const outputPath = path.join(outputDir, `${stage}-${mode}.json`);
+const outputStem =
+  experimentKind === "ablation" || args.variant
+    ? `${stage}-${mode}-${slugify(variant)}`
+    : `${stage}-${mode}`;
+const outputPath = path.join(outputDir, `${outputStem}.json`);
 
 await fs.mkdir(outputDir, { recursive: true });
 await fs.writeFile(outputPath, `${JSON.stringify(result, null, 2)}\n`, "utf8");
@@ -59,6 +71,10 @@ function parseArgs(rawArgs: string[]): {
   fixtures?: string;
   outputDir?: string;
   provider?: string;
+  experiment?: string;
+  variant?: string;
+  enable?: string;
+  disable?: string;
 } {
   const parsed: {
     stage?: string;
@@ -67,6 +83,10 @@ function parseArgs(rawArgs: string[]): {
     fixtures?: string;
     outputDir?: string;
     provider?: string;
+    experiment?: string;
+    variant?: string;
+    enable?: string;
+    disable?: string;
   } = {};
 
   for (let index = 0; index < rawArgs.length; index += 1) {
@@ -91,6 +111,18 @@ function parseArgs(rawArgs: string[]): {
     } else if (arg === "--provider" && value) {
       parsed.provider = value;
       index += 1;
+    } else if (arg === "--experiment" && value) {
+      parsed.experiment = value;
+      index += 1;
+    } else if (arg === "--variant" && value) {
+      parsed.variant = value;
+      index += 1;
+    } else if (arg === "--enable" && value) {
+      parsed.enable = value;
+      index += 1;
+    } else if (arg === "--disable" && value) {
+      parsed.disable = value;
+      index += 1;
     }
   }
 
@@ -101,6 +133,10 @@ function createEmptyInput(stage: string, mode: "baseline" | "council"): EvalInpu
   return {
     stage,
     mode,
+    experimentKind,
+    variant,
+    enabledCapabilities,
+    disabledCapabilities,
     groundTruth: [],
     candidateFindings: [],
     finalFindings: [],
@@ -120,6 +156,10 @@ async function loadInput(): Promise<EvalInput> {
       fixturesDir: resolveFromRepoRoot(args.fixtures),
       stage,
       mode,
+      experimentKind,
+      variant,
+      enabledCapabilities,
+      disabledCapabilities,
       modelProvider: countedProvider,
       model: resolvedProvider.model
     });
@@ -138,4 +178,33 @@ function parseProviderKind(value: string | undefined): ModelProviderKind | undef
   }
 
   return undefined;
+}
+
+function parseCsvArg(value: string | undefined): string[] {
+  if (!value) {
+    return [];
+  }
+
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
+function defaultVariant(
+  experimentKind: "stage" | "ablation",
+  stage: string,
+  mode: "baseline" | "council"
+): string {
+  return experimentKind === "ablation" ? `${mode}-ablation` : stage;
+}
+
+function slugify(value: string): string {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return slug || "variant";
 }

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 const SeveritySchema = z.enum(["critical", "high", "medium", "low", "info"]);
+const EvalExperimentKindSchema = z.enum(["stage", "ablation"]);
 
 export const EvalGroundTruthIssueSchema = z.object({
   id: z.string().min(1),
@@ -35,6 +36,10 @@ export const EvalFindingSchema = z.object({
 export const EvalInputSchema = z.object({
   stage: z.string().min(1),
   mode: z.enum(["baseline", "council"]),
+  experimentKind: EvalExperimentKindSchema.default("stage"),
+  variant: z.string().min(1).optional(),
+  enabledCapabilities: z.array(z.string().min(1)).default([]),
+  disabledCapabilities: z.array(z.string().min(1)).default([]),
   groundTruth: z.array(EvalGroundTruthIssueSchema),
   candidateFindings: z.array(EvalFindingSchema).default([]),
   finalFindings: z.array(EvalFindingSchema),
@@ -56,6 +61,10 @@ export type EvalInput = z.infer<typeof EvalInputSchema>;
 export type EvalResult = {
   stage: string;
   mode: "baseline" | "council";
+  experiment_kind: "stage" | "ablation";
+  variant: string;
+  enabled_capabilities: string[];
+  disabled_capabilities: string[];
   fixture_count: number;
   candidate_findings: number;
   final_findings: number;
@@ -109,6 +118,10 @@ export function evaluateRepoCouncil(input: unknown): EvalResult {
   return {
     stage: parsed.stage,
     mode: parsed.mode,
+    experiment_kind: parsed.experimentKind,
+    variant: parsed.variant ?? parsed.mode,
+    enabled_capabilities: parsed.enabledCapabilities,
+    disabled_capabilities: parsed.disabledCapabilities,
     fixture_count: parsed.groundTruth.length,
     candidate_findings: parsed.candidateFindings.length,
     final_findings: parsed.finalFindings.length,

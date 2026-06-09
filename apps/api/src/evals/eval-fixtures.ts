@@ -34,6 +34,10 @@ export type LoadEvalFixturesOptions = {
   fixturesDir: string;
   stage: string;
   mode: ReviewGraphMode;
+  experimentKind?: EvalInput["experimentKind"];
+  variant?: string;
+  enabledCapabilities?: string[];
+  disabledCapabilities?: string[];
   modelProvider: ModelProvider;
   model: string;
 };
@@ -72,6 +76,10 @@ export async function loadEvalInputFromFixtures(
   return {
     stage: options.stage,
     mode: options.mode,
+    experimentKind: options.experimentKind ?? "stage",
+    ...(options.variant ? { variant: options.variant } : {}),
+    enabledCapabilities: options.enabledCapabilities ?? [],
+    disabledCapabilities: options.disabledCapabilities ?? [],
     groundTruth,
     candidateFindings,
     finalFindings,
