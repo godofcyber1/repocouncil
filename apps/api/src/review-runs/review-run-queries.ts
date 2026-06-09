@@ -51,6 +51,7 @@ export type ReviewRunDetail = ReviewRunSummary & {
     id: string;
     agent: string;
     status: string;
+    output: unknown;
     completedAt: string | null;
   }>;
   modelUsage: Array<{
@@ -191,6 +192,7 @@ export async function getReviewRunDetail(
       id: task.id,
       agent: task.agent,
       status: task.status,
+      output: task.output,
       completedAt: task.completedAt?.toISOString() ?? null
     })),
     modelUsage: run.modelCalls.map((call) => ({

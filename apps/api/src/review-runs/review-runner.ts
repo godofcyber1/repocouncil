@@ -63,6 +63,7 @@ export async function executeReviewRun(
         repository: reviewRun.pullRequest.repository.fullName,
         pullNumber: reviewRun.pullRequest.number,
         headSha: reviewRun.headSha,
+        mode: reviewRun.mode === "BASELINE" ? "baseline" : "council",
         changedFiles: reviewRun.changedFiles.map((file) => ({
           path: file.path,
           patch: file.patch
@@ -135,6 +136,30 @@ async function persistGraphResult(
         status: "completed",
         input: {},
         output: graphResult.plan,
+        completedAt: new Date()
+      }
+    });
+
+    await tx.agentTask.create({
+      data: {
+        reviewRunId,
+        agent: "candidate_findings",
+        status: "completed",
+        input: {},
+        output: {
+          candidates: graphResult.candidateFindings
+        },
+        completedAt: new Date()
+      }
+    });
+
+    await tx.agentTask.create({
+      data: {
+        reviewRunId,
+        agent: "referee_decision",
+        status: "completed",
+        input: {},
+        output: graphResult.refereeDecision,
         completedAt: new Date()
       }
     });

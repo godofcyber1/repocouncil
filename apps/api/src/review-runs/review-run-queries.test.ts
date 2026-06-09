@@ -105,6 +105,9 @@ describe("review run queries", () => {
             id: "task_1",
             agent: "security_reviewer",
             status: "completed",
+            output: {
+              candidates: []
+            },
             completedAt
           }
         ],
@@ -150,6 +153,9 @@ describe("review run queries", () => {
       id: "task_1",
       agent: "security_reviewer",
       status: "completed",
+      output: {
+        candidates: []
+      },
       completedAt: "2026-06-07T10:01:00.000Z"
     });
   });

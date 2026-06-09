@@ -46,6 +46,7 @@ type ReviewRunDetail = {
     id: string;
     agent: string;
     status: string;
+    output: unknown;
     completedAt: string | null;
   }>;
   modelUsage: Array<{
