@@ -1,5 +1,6 @@
 import express from "express";
 import { config } from "./config/env.js";
+import { evalResultRouter } from "./evals/eval-result-router.js";
 import { githubWebhookRouter } from "./github/webhook-router.js";
 import { reviewRunRouter } from "./review-runs/review-run-router.js";
 
@@ -11,6 +12,7 @@ app.get("/health", (_req, res) => {
 
 app.use("/webhooks/github", githubWebhookRouter);
 app.use(express.json());
+app.use("/eval-results", evalResultRouter);
 app.use("/review-runs", reviewRunRouter);
 
 app.listen(config.apiPort, () => {

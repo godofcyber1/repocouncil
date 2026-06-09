@@ -35,7 +35,12 @@ export default async function HomePage() {
           <p className="eyebrow">RepoCouncil</p>
           <h1>Multi-agent PR review dashboard</h1>
         </div>
-        <div className="statusPill">{data.source}</div>
+        <div className="toolbarActions">
+          <Link className="secondaryNavButton" href="/evals">
+            Eval results
+          </Link>
+          <div className="statusPill">{data.source}</div>
+        </div>
       </section>
 
       <section className="metrics" aria-label="Review metrics">

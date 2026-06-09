@@ -89,6 +89,21 @@ button {
   gap: 24px;
 }
 
+.toolbarActions {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+}
+
+.secondaryNavButton {
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  display: inline-flex;
+  font-weight: 800;
+  min-height: 40px;
+  padding: 9px 14px;
+}
+
 .eyebrow {
   color: var(--accent);
   font-size: 13px;
@@ -347,12 +362,67 @@ h2 {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
 }
 
+.evalTable {
+  overflow-x: auto;
+}
+
+.evalRow {
+  align-items: center;
+  display: grid;
+  gap: 14px;
+  grid-template-columns:
+    minmax(220px, 1.8fr)
+    minmax(84px, auto)
+    minmax(72px, auto)
+    minmax(84px, auto)
+    minmax(84px, auto)
+    minmax(72px, auto)
+    minmax(82px, auto)
+    minmax(86px, auto)
+    minmax(96px, auto)
+    minmax(72px, auto);
+  min-width: 980px;
+  padding: 14px 18px;
+}
+
+.evalHeader {
+  background: #f9fafc;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.evalRow + .evalRow {
+  border-top: 1px solid var(--line);
+}
+
+.evalRow p {
+  color: var(--muted);
+  margin-top: 5px;
+}
+
+.modePill {
+  border: 1px solid var(--line);
+  color: var(--muted);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
+  justify-content: center;
+  min-width: 76px;
+  padding: 6px 8px;
+  text-transform: uppercase;
+}
+
 .compactRow strong,
 .usageRow strong,
 .usageRow span,
 .findingRow span,
 .candidateRow span,
-.decisionRow span {
+.decisionRow span,
+.evalRow span,
+.evalRow strong {
   overflow-wrap: anywhere;
 }
 
@@ -383,6 +453,7 @@ h2 {
   }
 
   .toolbar,
+  .toolbarActions,
   .detailHeader,
   .detailActions {
     display: grid;
