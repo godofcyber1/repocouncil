@@ -225,6 +225,47 @@ h2 {
   padding: 16px 18px;
 }
 
+.reviewerGroup + .reviewerGroup {
+  border-top: 1px solid var(--line);
+}
+
+.reviewerHeader {
+  align-items: center;
+  background: #f9fafc;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 12px 18px;
+  text-transform: uppercase;
+}
+
+.reviewerHeader span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.candidateRow,
+.decisionRow {
+  align-items: start;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) auto auto minmax(180px, auto);
+  padding: 16px 18px;
+}
+
+.candidateRow + .candidateRow,
+.decisionRow + .decisionRow {
+  border-top: 1px solid var(--line);
+}
+
+.candidateRow p,
+.decisionRow p {
+  color: var(--muted);
+  margin-top: 6px;
+}
+
 .findingRow + .findingRow,
 .compactRow + .compactRow,
 .usageRow + .usageRow {
@@ -259,6 +300,33 @@ h2 {
   color: #8a610c;
 }
 
+.decisionPill {
+  border: 1px solid var(--line);
+  color: var(--muted);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
+  justify-content: center;
+  min-width: 82px;
+  padding: 6px 8px;
+  text-transform: uppercase;
+}
+
+.decisionPill.accepted {
+  border-color: #23966f;
+  color: #137a57;
+}
+
+.decisionPill.merged {
+  border-color: #b98212;
+  color: #8a610c;
+}
+
+.decisionPill.rejected {
+  border-color: #c94444;
+  color: #a52a2a;
+}
+
 .twoColumn {
   display: grid;
   gap: 20px;
@@ -282,7 +350,9 @@ h2 {
 .compactRow strong,
 .usageRow strong,
 .usageRow span,
-.findingRow span {
+.findingRow span,
+.candidateRow span,
+.decisionRow span {
   overflow-wrap: anywhere;
 }
 
@@ -304,6 +374,8 @@ h2 {
   .detailHeader,
   .detailActions,
   .findingRow,
+  .candidateRow,
+  .decisionRow,
   .compactRow,
   .usageRow {
     align-items: stretch;

@@ -63,6 +63,35 @@ type ReviewRunDetailResponse = {
   run: ReviewRunDetail;
 };
 
+type ReviewFindingCandidate = {
+  id: string;
+  title: string;
+  body: string;
+  file: string;
+  startLine?: number;
+  endLine?: number;
+  severity: string;
+  confidence: number;
+  category: string;
+  evidence: string[];
+  suggestedPatch?: string;
+  suggestedTests?: string;
+  reviewer: string;
+};
+
+type RefereeDecision = {
+  candidateCount: number;
+  finalCount: number;
+  duplicateGroups: number;
+  decisions: Array<{
+    candidateId: string;
+    decision: string;
+    score: number;
+    reason: string;
+    mergedIntoId?: string;
+  }>;
+};
+
 type PageProps = {
   params: Promise<{
     id: string;
@@ -92,6 +121,12 @@ export default async function ReviewRunPage({ params, searchParams }: PageProps)
 
   const run = result.run;
   const actionMessage = getActionMessage(query.action);
+  const candidateFindings = extractCandidateFindings(run.trace);
+  const refereeDecision = extractRefereeDecision(run.trace);
+  const candidateGroups = groupCandidatesByReviewer(candidateFindings);
+  const decisionsByCandidateId = new Map(
+    refereeDecision?.decisions.map((decision) => [decision.candidateId, decision]) ?? []
+  );
 
   return (
     <main className="shell">
@@ -158,6 +193,78 @@ export default async function ReviewRunPage({ params, searchParams }: PageProps)
           <div className="emptyState">
             <strong>No findings</strong>
             <p>This run has no persisted issue candidates.</p>
+          </div>
+        )}
+      </section>
+
+      <section className="panel detailPanel">
+        <div className="panelHeader">
+          <h2>Council candidates</h2>
+          <span>{candidateFindings.length}</span>
+        </div>
+        {candidateFindings.length > 0 ? (
+          <div className="candidateList">
+            {candidateGroups.map(([reviewer, candidates]) => (
+              <section className="reviewerGroup" key={reviewer}>
+                <div className="reviewerHeader">
+                  <strong>{reviewer}</strong>
+                  <span>{candidates.length} candidates</span>
+                </div>
+                {candidates.map((candidate) => {
+                  const decision = decisionsByCandidateId.get(candidate.id);
+
+                  return (
+                    <article className="candidateRow" key={`${reviewer}:${candidate.id}`}>
+                      <div>
+                        <strong>{candidate.title}</strong>
+                        <p>{candidate.body}</p>
+                      </div>
+                      <span className={`decisionPill ${decision?.decision ?? "pending"}`}>
+                        {decision?.decision ?? "pending"}
+                      </span>
+                      <span>{decision ? Math.round(decision.score) : "--"}</span>
+                      <span>{formatCandidateLocation(candidate)}</span>
+                    </article>
+                  );
+                })}
+              </section>
+            ))}
+          </div>
+        ) : (
+          <div className="emptyState">
+            <strong>No candidate findings</strong>
+            <p>Execute a baseline or council review run to populate reviewer candidates.</p>
+          </div>
+        )}
+      </section>
+
+      <section className="panel detailPanel">
+        <div className="panelHeader">
+          <h2>Referee decisions</h2>
+          <span>{refereeDecision ? `${refereeDecision.finalCount}/${refereeDecision.candidateCount}` : "0"}</span>
+        </div>
+        {refereeDecision ? (
+          <div className="decisionSummary">
+            <div className="compactRow">
+              <strong>Duplicate groups</strong>
+              <span>{refereeDecision.duplicateGroups}</span>
+            </div>
+            {refereeDecision.decisions.map((decision) => (
+              <div className="decisionRow" key={decision.candidateId}>
+                <div>
+                  <strong>{decision.candidateId}</strong>
+                  <p>{decision.reason}</p>
+                </div>
+                <span className={`decisionPill ${decision.decision}`}>{decision.decision}</span>
+                <span>{Math.round(decision.score)}</span>
+                <span>{decision.mergedIntoId ?? "--"}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="emptyState">
+            <strong>No referee decision</strong>
+            <p>The deterministic referee has not produced an arbitration trace for this run.</p>
           </div>
         )}
       </section>
@@ -262,8 +369,105 @@ function formatLocation(finding: ReviewRunDetail["findingsList"][number]): strin
   return `${finding.filePath}:${finding.startLine}`;
 }
 
+function formatCandidateLocation(candidate: ReviewFindingCandidate): string {
+  if (!candidate.startLine) {
+    return candidate.file;
+  }
+
+  if (candidate.endLine && candidate.endLine !== candidate.startLine) {
+    return `${candidate.file}:${candidate.startLine}-${candidate.endLine}`;
+  }
+
+  return `${candidate.file}:${candidate.startLine}`;
+}
+
 function formatTokens(inputTokens: number | null, outputTokens: number | null): string {
   return `${inputTokens ?? 0} in / ${outputTokens ?? 0} out`;
+}
+
+function extractCandidateFindings(trace: ReviewRunDetail["trace"]): ReviewFindingCandidate[] {
+  const task = trace.find((item) => item.agent === "candidate_findings");
+  const output = task?.output;
+
+  if (!isRecord(output) || !Array.isArray(output.candidates)) {
+    return [];
+  }
+
+  return output.candidates.filter(isReviewFindingCandidate);
+}
+
+function extractRefereeDecision(trace: ReviewRunDetail["trace"]): RefereeDecision | null {
+  const task = trace.find((item) => item.agent === "referee_decision");
+  const output = task?.output;
+
+  if (!isRecord(output) || !Array.isArray(output.decisions)) {
+    return null;
+  }
+
+  const decisions = output.decisions.filter(isDecisionItem);
+
+  return {
+    candidateCount: readNumber(output.candidateCount),
+    finalCount: readNumber(output.finalCount),
+    duplicateGroups: readNumber(output.duplicateGroups),
+    decisions
+  };
+}
+
+function groupCandidatesByReviewer(
+  candidates: ReviewFindingCandidate[]
+): Array<[string, ReviewFindingCandidate[]]> {
+  const order = ["security", "quality", "test", "generic"];
+  const groups = new Map<string, ReviewFindingCandidate[]>();
+
+  for (const candidate of candidates) {
+    const group = groups.get(candidate.reviewer) ?? [];
+    group.push(candidate);
+    groups.set(candidate.reviewer, group);
+  }
+
+  return [...groups.entries()].sort(
+    ([left], [right]) => reviewerOrder(left, order) - reviewerOrder(right, order)
+  );
+}
+
+function reviewerOrder(reviewer: string, order: string[]): number {
+  const index = order.indexOf(reviewer);
+
+  return index === -1 ? order.length : index;
+}
+
+function isReviewFindingCandidate(value: unknown): value is ReviewFindingCandidate {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.title === "string" &&
+    typeof value.body === "string" &&
+    typeof value.file === "string" &&
+    typeof value.severity === "string" &&
+    typeof value.confidence === "number" &&
+    typeof value.category === "string" &&
+    Array.isArray(value.evidence) &&
+    typeof value.reviewer === "string"
+  );
+}
+
+function isDecisionItem(value: unknown): value is RefereeDecision["decisions"][number] {
+  return (
+    isRecord(value) &&
+    typeof value.candidateId === "string" &&
+    typeof value.decision === "string" &&
+    typeof value.score === "number" &&
+    typeof value.reason === "string"
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function readNumber(value: unknown): number {
+  return typeof value === "number" ? value : 0;
 }
 
 async function rerunReviewRunAction(formData: FormData) {
