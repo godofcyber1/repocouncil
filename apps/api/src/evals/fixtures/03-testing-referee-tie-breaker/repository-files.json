@@ -1,0 +1,7 @@
+[
+  {
+    "path": "AGENTS.md",
+    "role": "guideline",
+    "summary": "Referee scoring behavior must have deterministic tie-breaker tests."
+  }
+]

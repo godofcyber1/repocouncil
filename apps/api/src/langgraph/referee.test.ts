@@ -82,6 +82,71 @@ describe("deterministic referee", () => {
     );
   });
 
+  it("merges nearby testing findings into a primary security finding's suggested tests", () => {
+    const security = candidate({
+      id: "security-debug-bypass",
+      reviewer: "security",
+      title: "Webhook signature validation can be bypassed with debug query parameter",
+      body:
+        "The webhook route skips signature verification when the debug query parameter is present, allowing forged webhook payloads.",
+      file: "apps/api/src/github/webhook-router.ts",
+      startLine: 27,
+      endLine: 31,
+      category: "security",
+      severity: "high",
+      evidence: ["debug query bypasses signature verification"],
+      suggestedPatch: "Remove the debug bypass and always verify the signed raw body."
+    });
+    const testing = candidate({
+      id: "test-debug-bypass",
+      reviewer: "test",
+      title: "Missing test for debug mode signature bypass",
+      body:
+        "Add a regression test proving debug mode cannot bypass webhook signature validation.",
+      file: "apps/api/src/github/webhook-router.ts",
+      startLine: 29,
+      endLine: 29,
+      category: "testing",
+      severity: "medium",
+      evidence: ["No test covers debug signature bypass behavior."],
+      suggestedTests:
+        "Assert a request with ?debug=true and an invalid signature still returns 401."
+    });
+
+    const result = runDeterministicReferee([security, testing]);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]).toEqual(
+      expect.objectContaining({
+        id: "security-debug-bypass",
+        suggestedPatch: "Remove the debug bypass and always verify the signed raw body.",
+        suggestedTests:
+          "Assert a request with ?debug=true and an invalid signature still returns 401."
+      })
+    );
+    expect(result.decision).toEqual(
+      expect.objectContaining({
+        candidateCount: 2,
+        finalCount: 1,
+        duplicateGroups: 1
+      })
+    );
+    expect(result.decision.decisions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          candidateId: "security-debug-bypass",
+          decision: "accepted"
+        }),
+        expect.objectContaining({
+          candidateId: "test-debug-bypass",
+          decision: "merged",
+          mergedIntoId: "security-debug-bypass",
+          reason: "Merged into primary finding as suggestedTests."
+        })
+      ])
+    );
+  });
+
   it("rejects vague low-score candidates even when they are schema-valid", () => {
     const vague = candidate({
       id: "vague",
@@ -101,6 +166,54 @@ describe("deterministic referee", () => {
         candidateId: "vague",
         decision: "rejected"
       })
+    );
+  });
+
+  it("rejects candidates that fail the evidence gate even with high severity", () => {
+    const noEvidence = candidate({
+      id: "no-evidence",
+      severity: "critical",
+      confidence: 0.99,
+      evidence: []
+    });
+
+    const noLocation = candidate({
+      id: "no-location",
+      severity: "critical",
+      confidence: 0.99,
+      evidence: ["critical but not localized"]
+    });
+    delete noLocation.startLine;
+
+    const suspicion = candidate({
+      id: "suspicion",
+      severity: "high",
+      confidence: 0.4,
+      category: "suspicion",
+      evidence: ["possible issue but unverified"]
+    });
+
+    const result = runDeterministicReferee([noEvidence, noLocation, suspicion]);
+
+    expect(result.findings).toHaveLength(0);
+    expect(result.decision.decisions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          candidateId: "no-evidence",
+          decision: "rejected",
+          reason: "Evidence gate rejected candidate without an evidence chain."
+        }),
+        expect.objectContaining({
+          candidateId: "no-location",
+          decision: "rejected",
+          reason: "Evidence gate rejected candidate without changed-file line location."
+        }),
+        expect.objectContaining({
+          candidateId: "suspicion",
+          decision: "rejected",
+          reason: "Evidence gate kept unverified suspicion in trace only."
+        })
+      ])
     );
   });
 });

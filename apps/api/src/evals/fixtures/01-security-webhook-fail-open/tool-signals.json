@@ -1,0 +1,14 @@
+[
+  {
+    "id": "semgrep:apps/api/src/github/webhook.ts:42:missing-fail-closed",
+    "source": "semgrep",
+    "kind": "missing-fail-closed",
+    "file": "apps/api/src/github/webhook.ts",
+    "startLine": 42,
+    "endLine": 48,
+    "severity": "high",
+    "message": "Invalid webhook signatures should stop request processing.",
+    "evidence": ["Semgrep flagged missing fail-closed branch after signature verification."],
+    "command": "semgrep --json"
+  }
+]

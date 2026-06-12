@@ -48,10 +48,14 @@ export class QwenProvider implements ModelProvider {
       body: JSON.stringify({
         model: request.model,
         messages: [
+          {
+            role: "system",
+            content: jsonContractForSchema(request.schemaName)
+          },
           ...request.messages,
           {
             role: "system",
-            content: `Return only valid JSON for schema ${request.schemaName}. Do not wrap it in markdown.`
+            content: `Return only valid JSON for schema ${request.schemaName}. Do not wrap it in markdown or add explanatory text.`
           }
         ],
         temperature: request.temperature ?? 0,
@@ -103,4 +107,52 @@ export function parseJsonContent<T>(content: string): T {
 
 function stripTrailingSlash(value: string): string {
   return value.endsWith("/") ? value.slice(0, -1) : value;
+}
+
+function jsonContractForSchema(schemaName: string): string {
+  if (schemaName === "ReviewPlan") {
+    return [
+      "Return exactly one JSON object matching this TypeScript shape:",
+      "{",
+      '  "planId": "plan_<short_identifier>",',
+      '  "tasks": [',
+      "    {",
+      '      "id": "task_<short_identifier>",',
+      '      "agent": "generic_reviewer | security_reviewer | quality_reviewer | test_reviewer",',
+      '      "files": ["relative/path/from/changedFiles"],',
+      '      "goal": "specific review goal"',
+      "    }",
+      "  ],",
+      '  "humanGateRequired": false',
+      "}",
+      "Do not use different top-level keys. planId and tasks are required."
+    ].join("\n");
+  }
+
+  if (schemaName === "ReviewFindingList") {
+    return [
+      "Return exactly one JSON object matching this TypeScript shape:",
+      "{",
+      '  "findings": [',
+      "    {",
+      '      "id": "finding_<short_identifier>",',
+      '      "title": "short actionable title",',
+      '      "body": "explain the issue and why it matters",',
+      '      "file": "relative/path/from/changedFiles",',
+      '      "startLine": 1,',
+      '      "endLine": 1,',
+      '      "severity": "info | low | medium | high | critical",',
+      '      "confidence": 0.0,',
+      '      "category": "security | correctness | testing | maintainability",',
+      '      "evidence": ["specific evidence from diff, repo context, or toolSignals"],',
+      '      "suggestedPatch": "optional patch text",',
+      '      "suggestedTests": "optional test suggestion"',
+      "    }",
+      "  ]",
+      "}",
+      "Use an empty findings array when there is no high-confidence evidence-backed issue."
+    ].join("\n");
+  }
+
+  return `Return exactly one valid JSON object for schema ${schemaName}.`;
 }

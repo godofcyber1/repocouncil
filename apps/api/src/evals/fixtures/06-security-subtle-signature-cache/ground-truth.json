@@ -1,0 +1,20 @@
+{
+  "id": "gt-006",
+  "title": "Webhook signature cache is keyed only by signature header",
+  "category": "security",
+  "severity": "high",
+  "file": "apps/api/src/github/webhook-signature.ts",
+  "lineRange": [13, 30],
+  "expectedSignals": [
+    "signature cache",
+    "rawBody",
+    "secret",
+    "cache key",
+    "modified body",
+    "replay"
+  ],
+  "mustBeDetectedBy": ["council_specialization", "repo_context"],
+  "acceptableCategories": ["security"],
+  "acceptableSeverities": ["high", "critical"],
+  "explanation": "Caching webhook verification only by signatureHeader can reuse a valid decision for a different rawBody or secret. The cache key must include all security-sensitive inputs, otherwise a modified body or replay can bypass validation."
+}

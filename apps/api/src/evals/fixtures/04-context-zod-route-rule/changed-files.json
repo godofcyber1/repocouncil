@@ -1,0 +1,6 @@
+[
+  {
+    "path": "apps/api/src/github/webhook-router.ts",
+    "patch": "@@ -18,6 +18,16 @@ githubWebhookRouter.post(\"/\", async (req, res) => {\n+  const deliveryId = req.body.deliveryId;\n+  const action = req.body.action;\n+\n+  if (action === \"opened\") {\n+    await enqueueReviewRun({ deliveryId, payload: req.body });\n+  }\n+\n+  res.status(202).json({ ok: true });\n });"
+  }
+]

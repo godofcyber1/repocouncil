@@ -1,6 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { loadEvalInputFromFixtures } from "../evals/eval-fixtures.js";
+import {
+  loadBareEvalInputFromFixtures,
+  loadEvalInputFromFixtures
+} from "../evals/eval-fixtures.js";
 import { evaluateRepoCouncil, type EvalInput } from "../evals/eval-runner.js";
 import type { ModelJsonRequest, ModelJsonResponse, ModelProvider } from "../models/model-provider.js";
 import {
@@ -27,7 +30,7 @@ class CountingModelProvider implements ModelProvider {
 
 const args = parseArgs(process.argv.slice(2));
 const stage = args.stage ?? "stage-0";
-const mode = args.mode === "council" ? "council" : "baseline";
+const mode = parseEvalMode(args.mode);
 const experimentKind = args.experiment === "ablation" ? "ablation" : "stage";
 const variant = args.variant ?? defaultVariant(experimentKind, stage, mode);
 const enabledCapabilities = parseCsvArg(args.enable);
@@ -35,21 +38,6 @@ const disabledCapabilities = parseCsvArg(args.disable);
 const repoRoot = path.resolve("../..");
 const startedAt = Date.now();
 const providerKind = parseProviderKind(args.provider);
-const resolvedProvider = createModelProvider(providerKind ? { kind: providerKind } : {});
-const countedProvider = new CountingModelProvider(resolvedProvider.provider);
-const input = await loadInput();
-input.experimentKind = experimentKind;
-input.variant = variant;
-input.enabledCapabilities = enabledCapabilities;
-input.disabledCapabilities = disabledCapabilities;
-input.metadata = {
-  ...input.metadata,
-  latencyMs: Date.now() - startedAt,
-  modelCalls: countedProvider.calls,
-  inputTokens: countedProvider.inputTokens,
-  outputTokens: countedProvider.outputTokens
-};
-const result = evaluateRepoCouncil(input);
 const outputDir = args.outputDir
   ? resolveFromRepoRoot(args.outputDir)
   : path.join(repoRoot, "docs/private/eval-results");
@@ -60,9 +48,35 @@ const outputStem =
 const outputPath = path.join(outputDir, `${outputStem}.json`);
 
 await fs.mkdir(outputDir, { recursive: true });
-await fs.writeFile(outputPath, `${JSON.stringify(result, null, 2)}\n`, "utf8");
 
-console.log(JSON.stringify({ outputPath, result }, null, 2));
+try {
+  const resolvedProvider = createModelProvider(providerKind ? { kind: providerKind } : {});
+  const countedProvider = new CountingModelProvider(resolvedProvider.provider);
+  const input = await loadInput(countedProvider, resolvedProvider);
+  input.experimentKind = experimentKind;
+  input.variant = variant;
+  input.enabledCapabilities = enabledCapabilities;
+  input.disabledCapabilities = disabledCapabilities;
+  input.metadata = {
+    ...input.metadata,
+    latencyMs: Date.now() - startedAt,
+    modelCalls: countedProvider.calls,
+    inputTokens: countedProvider.inputTokens,
+    outputTokens: countedProvider.outputTokens
+  };
+  const result = evaluateRepoCouncil(input);
+
+  await fs.writeFile(outputPath, `${JSON.stringify(result, null, 2)}\n`, "utf8");
+
+  console.log(JSON.stringify({ outputPath, result }, null, 2));
+} catch (error) {
+  const failure = createEvalFailure(error);
+  const failurePath = path.join(outputDir, `${outputStem}-failure.json`);
+
+  await fs.writeFile(failurePath, `${JSON.stringify(failure, null, 2)}\n`, "utf8");
+  console.error(JSON.stringify({ outputPath: failurePath, failure }, null, 2));
+  process.exitCode = 1;
+}
 
 function parseArgs(rawArgs: string[]): {
   stage?: string;
@@ -75,6 +89,7 @@ function parseArgs(rawArgs: string[]): {
   variant?: string;
   enable?: string;
   disable?: string;
+  repoRoot?: string;
 } {
   const parsed: {
     stage?: string;
@@ -87,6 +102,7 @@ function parseArgs(rawArgs: string[]): {
     variant?: string;
     enable?: string;
     disable?: string;
+    repoRoot?: string;
   } = {};
 
   for (let index = 0; index < rawArgs.length; index += 1) {
@@ -123,13 +139,16 @@ function parseArgs(rawArgs: string[]): {
     } else if (arg === "--disable" && value) {
       parsed.disable = value;
       index += 1;
+    } else if (arg === "--repo-root" && value) {
+      parsed.repoRoot = value;
+      index += 1;
     }
   }
 
   return parsed;
 }
 
-function createEmptyInput(stage: string, mode: "baseline" | "council"): EvalInput {
+function createEmptyInput(stage: string, mode: "bare" | "baseline" | "council"): EvalInput {
   return {
     stage,
     mode,
@@ -150,9 +169,26 @@ function resolveFromRepoRoot(value: string): string {
   return path.isAbsolute(value) ? value : path.join(repoRoot, value);
 }
 
-async function loadInput(): Promise<EvalInput> {
+async function loadInput(
+  countedProvider: CountingModelProvider,
+  resolvedProvider: ReturnType<typeof createModelProvider>
+): Promise<EvalInput> {
   if (args.fixtures) {
-    return loadEvalInputFromFixtures({
+    if (mode === "bare") {
+      return loadBareEvalInputFromFixtures({
+        fixturesDir: resolveFromRepoRoot(args.fixtures),
+        stage,
+        experimentKind,
+        variant,
+        enabledCapabilities,
+        disabledCapabilities,
+        modelProvider: countedProvider,
+        model: resolvedProvider.model,
+        models: resolvedProvider.models
+      });
+    }
+
+    const fixtureOptions: Parameters<typeof loadEvalInputFromFixtures>[0] = {
       fixturesDir: resolveFromRepoRoot(args.fixtures),
       stage,
       mode,
@@ -161,8 +197,16 @@ async function loadInput(): Promise<EvalInput> {
       enabledCapabilities,
       disabledCapabilities,
       modelProvider: countedProvider,
-      model: resolvedProvider.model
-    });
+      model: resolvedProvider.model,
+      models: resolvedProvider.models,
+      enableToolEvidenceRuntime: enabledCapabilities.includes("tool-evidence-runtime")
+    };
+
+    if (args.repoRoot) {
+      fixtureOptions.repositoryRoot = resolveFromRepoRoot(args.repoRoot);
+    }
+
+    return loadEvalInputFromFixtures(fixtureOptions);
   }
 
   if (args.input) {
@@ -172,12 +216,38 @@ async function loadInput(): Promise<EvalInput> {
   return createEmptyInput(stage, mode);
 }
 
+function createEvalFailure(error: unknown) {
+  return {
+    status: "failed" as const,
+    stage,
+    mode,
+    experiment_kind: experimentKind,
+    variant,
+    enabled_capabilities: enabledCapabilities,
+    disabled_capabilities: disabledCapabilities,
+    provider: providerKind ?? "default",
+    command: `npm.cmd run eval -- ${process.argv.slice(2).join(" ")}`,
+    message: error instanceof Error ? error.message : "Unknown eval failure",
+    stack: error instanceof Error ? error.stack : undefined,
+    latency_ms: Date.now() - startedAt,
+    created_at: new Date().toISOString()
+  };
+}
+
 function parseProviderKind(value: string | undefined): ModelProviderKind | undefined {
-  if (value === "mock" || value === "qwen") {
+  if (value === "mock" || value === "qwen" || value === "seeded") {
     return value;
   }
 
   return undefined;
+}
+
+function parseEvalMode(value: string | undefined): "bare" | "baseline" | "council" {
+  if (value === "bare" || value === "council") {
+    return value;
+  }
+
+  return "baseline";
 }
 
 function parseCsvArg(value: string | undefined): string[] {
@@ -194,7 +264,7 @@ function parseCsvArg(value: string | undefined): string[] {
 function defaultVariant(
   experimentKind: "stage" | "ablation",
   stage: string,
-  mode: "baseline" | "council"
+  mode: "bare" | "baseline" | "council"
 ): string {
   return experimentKind === "ablation" ? `${mode}-ablation` : stage;
 }

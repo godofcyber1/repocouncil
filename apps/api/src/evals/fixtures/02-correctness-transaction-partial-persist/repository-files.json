@@ -1,0 +1,12 @@
+[
+  {
+    "path": "AGENTS.md",
+    "role": "guideline",
+    "summary": "Database writes that create a review run and its changed-file records must be atomic."
+  },
+  {
+    "path": "apps/api/prisma/schema.prisma",
+    "role": "schema",
+    "summary": "ReviewRun owns PullRequestFile children through reviewRunId."
+  }
+]

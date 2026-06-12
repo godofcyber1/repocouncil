@@ -34,8 +34,14 @@ const fixtureGitHubClient: GitHubClient = {
       }
     ];
   },
+  async getRepositoryFileContent() {
+    return null;
+  },
   async createCheckRun() {
     throw new Error("Fixture GitHub client does not publish check runs.");
+  },
+  async updateCheckRun() {
+    throw new Error("Fixture GitHub client does not update check runs.");
   },
   async createIssueComment() {
     throw new Error("Fixture GitHub client does not publish issue comments.");
@@ -47,7 +53,9 @@ const result = await handlePullRequestEvent(payload, "local-delivery-001", {
 });
 
 if (shouldExecute && result.accepted && "reviewRunId" in result) {
-  const execution = await executeReviewRun(result.reviewRunId);
+  const execution = await executeReviewRun(result.reviewRunId, {
+    github: fixtureGitHubClient
+  });
   console.log(JSON.stringify({ webhook: result, execution }, null, 2));
 } else {
   console.log(JSON.stringify(result, null, 2));

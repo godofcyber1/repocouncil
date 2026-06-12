@@ -1,0 +1,7 @@
+[
+  {
+    "path": "AGENTS.md",
+    "role": "guideline",
+    "summary": "Webhook signature validation must bind the signature to the exact rawBody and secret used for verification. Do not cache auth, permission, token, or signature decisions unless the key contains every security-sensitive input."
+  }
+]

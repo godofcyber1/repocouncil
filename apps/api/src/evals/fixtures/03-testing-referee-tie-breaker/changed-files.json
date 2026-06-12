@@ -1,0 +1,6 @@
+[
+  {
+    "path": "apps/api/src/langgraph/referee.ts",
+    "patch": "@@ -30,10 +30,15 @@ export function scoreFindingCandidate(candidate: ReviewFindingCandidate): number {\n   return (\n     SEVERITY_WEIGHT[candidate.severity] +\n     candidate.confidence * 10 +\n-    candidate.evidence.length * 2 +\n+    candidate.evidence.length * 3 +\n     (candidate.startLine ? 3 : 0) +\n     specialtyWeight(candidate.reviewer, candidate.category) +\n+    (candidate.suggestedPatch ? 4 : 0) +\n+    (candidate.suggestedTests ? 4 : 0) -\n     vagueFindingPenalty(candidate)\n   );\n }"
+  }
+]

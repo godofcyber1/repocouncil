@@ -8,6 +8,7 @@
     "dev": "tsx watch src/server.ts",
     "execute:review-run": "tsx src/scripts/execute-review-run.ts",
     "eval": "tsx src/scripts/run-eval.ts",
+    "eval:summary": "tsx src/scripts/write-eval-summary.ts",
     "start": "node dist/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prisma:generate": "prisma generate",

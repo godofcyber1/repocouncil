@@ -29,12 +29,28 @@ export type GitHubCheckRunInput = {
   output: CheckRunOutput;
 };
 
+export type GitHubCheckRunUpdateInput = {
+  owner: string;
+  repo: string;
+  installationId: number | null;
+  checkRunId: number;
+  output: CheckRunOutput;
+};
+
 export type GitHubIssueCommentInput = {
   owner: string;
   repo: string;
   installationId: number | null;
   issueNumber: number;
   body: string;
+};
+
+export type GitHubRepositoryFileInput = {
+  owner: string;
+  repo: string;
+  installationId: number | null;
+  path: string;
+  ref: string;
 };
 
 export type GitHubWriteResult = {
@@ -44,7 +60,9 @@ export type GitHubWriteResult = {
 
 export interface GitHubClient {
   listPullRequestFiles(ref: GitHubPullRequestRef): Promise<GitHubPullRequestFile[]>;
+  getRepositoryFileContent(input: GitHubRepositoryFileInput): Promise<string | null>;
   createCheckRun(input: GitHubCheckRunInput): Promise<GitHubWriteResult>;
+  updateCheckRun(input: GitHubCheckRunUpdateInput): Promise<GitHubWriteResult>;
   createIssueComment(input: GitHubIssueCommentInput): Promise<GitHubWriteResult>;
 }
 
@@ -69,6 +87,32 @@ export class OctokitGitHubClient implements GitHubClient {
     }));
   }
 
+  async getRepositoryFileContent(input: GitHubRepositoryFileInput): Promise<string | null> {
+    const octokit = await createOctokit(input.installationId);
+
+    try {
+      const response = await octokit.rest.repos.getContent({
+        owner: input.owner,
+        repo: input.repo,
+        path: input.path,
+        ref: input.ref
+      });
+      const data = response.data;
+
+      if (Array.isArray(data) || data.type !== "file" || !("content" in data) || !data.content) {
+        return null;
+      }
+
+      return Buffer.from(data.content, "base64").toString("utf8");
+    } catch (error) {
+      if (isGitHubNotFound(error)) {
+        return null;
+      }
+
+      throw error;
+    }
+  }
+
   async createCheckRun(input: GitHubCheckRunInput): Promise<GitHubWriteResult> {
     const octokit = await createOctokit(input.installationId);
     const response = await octokit.rest.checks.create({
@@ -79,6 +123,26 @@ export class OctokitGitHubClient implements GitHubClient {
       status: "completed",
       conclusion: input.output.conclusion,
       completed_at: new Date().toISOString(),
+      output: {
+        title: input.output.title,
+        summary: input.output.summary,
+        text: input.output.text,
+        annotations: input.output.annotations
+      }
+    });
+
+    return {
+      id: response.data.id,
+      htmlUrl: response.data.html_url ?? null
+    };
+  }
+
+  async updateCheckRun(input: GitHubCheckRunUpdateInput): Promise<GitHubWriteResult> {
+    const octokit = await createOctokit(input.installationId);
+    const response = await octokit.rest.checks.update({
+      owner: input.owner,
+      repo: input.repo,
+      check_run_id: input.checkRunId,
       output: {
         title: input.output.title,
         summary: input.output.summary,
@@ -107,6 +171,10 @@ export class OctokitGitHubClient implements GitHubClient {
       htmlUrl: response.data.html_url ?? null
     };
   }
+}
+
+function isGitHubNotFound(error: unknown): boolean {
+  return typeof error === "object" && error !== null && (error as { status?: number }).status === 404;
 }
 
 async function createOctokit(installationId: number | null): Promise<Octokit> {

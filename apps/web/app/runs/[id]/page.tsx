@@ -46,7 +46,10 @@ type ReviewRunDetail = {
     id: string;
     agent: string;
     status: string;
+    input: unknown;
     output: unknown;
+    summary: string;
+    createdAt: string;
     completedAt: string | null;
   }>;
   modelUsage: Array<{
@@ -92,6 +95,39 @@ type RefereeDecision = {
   }>;
 };
 
+type ReviewContextBundle = {
+  repoFiles: Array<{
+    path: string;
+    role: string;
+    summary?: string;
+  }>;
+  repoGuidelines: Array<{
+    path: string;
+    role: string;
+    summary?: string;
+  }>;
+  relatedFiles: Array<{
+    path: string;
+    role: string;
+    summary?: string;
+  }>;
+  toolSignals: Array<{
+    id?: string;
+    source?: string;
+    kind?: string;
+    file?: string;
+    message?: string;
+  }>;
+  reviewFocus: string[];
+};
+
+type ExecutionIssue = {
+  agent: string;
+  code: string;
+  message: string;
+  recoverable: boolean;
+};
+
 type PageProps = {
   params: Promise<{
     id: string;
@@ -123,10 +159,17 @@ export default async function ReviewRunPage({ params, searchParams }: PageProps)
   const actionMessage = getActionMessage(query.action);
   const candidateFindings = extractCandidateFindings(run.trace);
   const refereeDecision = extractRefereeDecision(run.trace);
+  const reviewContext = extractReviewContext(run.trace);
   const candidateGroups = groupCandidatesByReviewer(candidateFindings);
+  const executionIssues = extractExecutionIssues(run.trace);
   const decisionsByCandidateId = new Map(
     refereeDecision?.decisions.map((decision) => [decision.candidateId, decision]) ?? []
   );
+  const highPriorityFindings = run.findingsList.filter(isHighPriorityFinding).length;
+  const acceptedCandidates =
+    refereeDecision?.decisions.filter((decision) => decision.decision === "accepted").length ?? 0;
+  const changedLines = run.changedFiles.reduce((total, file) => total + file.changes, 0);
+  const gateStatus = getHumanGateStatus(run.status, highPriorityFindings);
 
   return (
     <main className="shell">
@@ -134,10 +177,27 @@ export default async function ReviewRunPage({ params, searchParams }: PageProps)
         Back to runs
       </Link>
 
-      <section className="detailHeader">
-        <div>
+      <section className="detailHero">
+        <div className="detailHeroMain">
           <p className="eyebrow">{run.repository}</p>
-          <h1>PR #{run.pullNumber}</h1>
+          <h1>PR #{run.pullNumber}: {run.title}</h1>
+          <div className="heroMeta" aria-label="Pull request metadata">
+            <span>{run.pullRequest.baseRef} &lt;- {run.pullRequest.headRef}</span>
+            <span>{run.pullRequest.authorLogin ?? "unknown author"}</span>
+            <span>{shortSha(run.headSha)}</span>
+            <span>{run.mode}</span>
+          </div>
+        </div>
+        <aside className={`gateCard ${gateStatus.kind}`} aria-label="Human gate status">
+          <span>Human gate</span>
+          <strong>{gateStatus.label}</strong>
+          <p>{gateStatus.description}</p>
+        </aside>
+      </section>
+
+      <section className="detailHeader actionBar">
+        <div>
+          <p className="eyebrow">Run controls</p>
           <p className="mutedText">{run.title}</p>
         </div>
         <div className="detailActions">
@@ -177,16 +237,43 @@ export default async function ReviewRunPage({ params, searchParams }: PageProps)
 
       {actionMessage ? <p className={`actionMessage ${actionMessage.kind}`}>{actionMessage.text}</p> : null}
 
+      {executionIssues.length > 0 ? (
+        <section className="failureBanner" aria-label="Execution issue">
+          <div>
+            <strong>Execution issue detected</strong>
+            <p>{executionIssues[0]?.message}</p>
+          </div>
+          <code>{executionIssues[0]?.code}</code>
+        </section>
+      ) : null}
+
       <section className="metrics" aria-label="Review run metrics">
-        <Metric label="Findings" value={run.findings.toString()} />
-        <Metric label="Agents" value={run.agentTasks.toString()} />
-        <Metric label="Model calls" value={run.modelCalls.toString()} />
-        <Metric label="Mode" value={run.mode} />
+        <Metric label="Final findings" value={run.findings.toString()} hint={`${highPriorityFindings} high priority`} />
+        <Metric label="Council candidates" value={candidateFindings.length.toString()} hint={`${acceptedCandidates} accepted`} />
+        <Metric label="Changed files" value={run.changedFiles.length.toString()} hint={`${changedLines} changed lines`} />
+        <Metric label="Latency" value={formatDuration(run.createdAt, run.completedAt)} hint={`${run.modelCalls} model calls`} />
+      </section>
+
+      <section className="workflowStrip" aria-label="Run workflow">
+        <WorkflowStep title="Webhook intake" body={run.pullRequest.state} />
+        <WorkflowStep
+          title="Context bundle"
+          body={
+            reviewContext
+              ? `${reviewContext.repoFiles.length} repo files, ${reviewContext.toolSignals.length} tool signals`
+              : `${run.changedFiles.length} files prepared`
+          }
+        />
+        <WorkflowStep title="Reviewer fan-out" body={`${run.agentTasks} agent tasks`} />
+        <WorkflowStep
+          title="Referee output"
+          body={refereeDecision ? `${refereeDecision.finalCount} final of ${refereeDecision.candidateCount}` : "Pending"}
+        />
       </section>
 
       <section className="panel detailPanel">
         <div className="panelHeader">
-          <h2>Findings</h2>
+          <h2>Final findings</h2>
           <span>{run.findingsList.length}</span>
         </div>
         {run.findingsList.length > 0 ? (
@@ -194,8 +281,17 @@ export default async function ReviewRunPage({ params, searchParams }: PageProps)
             {run.findingsList.map((finding) => (
               <article className="findingRow" key={finding.id}>
                 <div>
-                  <strong>{finding.title}</strong>
+                  <div className="rowTitle">
+                    <strong>{finding.title}</strong>
+                    <span>{finding.category}</span>
+                  </div>
                   <p>{finding.body}</p>
+                  {finding.suggestedPatch || finding.suggestedTests ? (
+                    <div className="suggestionChips">
+                      {finding.suggestedPatch ? <span>Patch suggested</span> : null}
+                      {finding.suggestedTests ? <span>Tests suggested</span> : null}
+                    </div>
+                  ) : null}
                 </div>
                 <span className={`severity ${finding.severity}`}>{finding.severity}</span>
                 <span>{Math.round(finding.confidence * 100)}%</span>
@@ -230,8 +326,16 @@ export default async function ReviewRunPage({ params, searchParams }: PageProps)
                   return (
                     <article className="candidateRow" key={`${reviewer}:${candidate.id}`}>
                       <div>
-                        <strong>{candidate.title}</strong>
+                        <div className="rowTitle">
+                          <strong>{candidate.title}</strong>
+                          <span>{candidate.category}</span>
+                        </div>
                         <p>{candidate.body}</p>
+                        <div className="candidateEvidence">
+                          {candidate.evidence.length > 0
+                            ? candidate.evidence.slice(0, 2).map((item) => <span key={item}>{item}</span>)
+                            : <span>No evidence recorded</span>}
+                        </div>
                       </div>
                       <span className={`decisionPill ${decision?.decision ?? "pending"}`}>
                         {decision?.decision ?? "pending"}
@@ -259,9 +363,19 @@ export default async function ReviewRunPage({ params, searchParams }: PageProps)
         </div>
         {refereeDecision ? (
           <div className="decisionSummary">
-            <div className="compactRow">
-              <strong>Duplicate groups</strong>
-              <span>{refereeDecision.duplicateGroups}</span>
+            <div className="decisionStats">
+              <div>
+                <span>Final</span>
+                <strong>{refereeDecision.finalCount}</strong>
+              </div>
+              <div>
+                <span>Candidates</span>
+                <strong>{refereeDecision.candidateCount}</strong>
+              </div>
+              <div>
+                <span>Duplicate groups</span>
+                <strong>{refereeDecision.duplicateGroups}</strong>
+              </div>
             </div>
             {refereeDecision.decisions.map((decision) => (
               <div className="decisionRow" key={decision.candidateId}>
@@ -295,8 +409,42 @@ export default async function ReviewRunPage({ params, searchParams }: PageProps)
           ))}
         </InfoPanel>
 
+        <InfoPanel title="Repo context" count={reviewContext?.repoFiles.length ?? 0}>
+          {reviewContext && reviewContext.repoFiles.length > 0 ? (
+            reviewContext.repoFiles.map((file) => (
+              <div className="compactRow" key={file.path}>
+                <strong>{file.path}</strong>
+                <span>{file.role}</span>
+              </div>
+            ))
+          ) : (
+            <div className="compactRow">
+              <strong>No repository context</strong>
+              <span>not discovered</span>
+            </div>
+          )}
+        </InfoPanel>
+      </section>
+
+      <section className="twoColumn">
+        <InfoPanel title="Tool signals" count={reviewContext?.toolSignals.length ?? 0}>
+          {reviewContext && reviewContext.toolSignals.length > 0 ? (
+            reviewContext.toolSignals.map((signal, index) => (
+              <div className="compactRow" key={signal.id ?? `${signal.source}:${signal.kind}:${index}`}>
+                <strong>{signal.file ?? signal.source ?? "tool"}</strong>
+                <span>{signal.kind ?? signal.message ?? "signal"}</span>
+              </div>
+            ))
+          ) : (
+            <div className="compactRow">
+              <strong>No tool signals</strong>
+              <span>not attached</span>
+            </div>
+          )}
+        </InfoPanel>
+
         <InfoPanel title="Agent trace" count={run.trace.length}>
-          {run.trace.map((task) => (
+          {run.trace.slice(0, 6).map((task) => (
             <div className="compactRow" key={task.id}>
               <strong>{task.agent}</strong>
               <span>{task.status}</span>
@@ -307,18 +455,60 @@ export default async function ReviewRunPage({ params, searchParams }: PageProps)
 
       <section className="panel detailPanel">
         <div className="panelHeader">
+          <h2>Agent trace details</h2>
+          <span>{run.trace.length}</span>
+        </div>
+        {run.trace.length > 0 ? (
+          <div className="traceTimeline">
+            {run.trace.map((task, index) => (
+              <article className="traceEvent" key={task.id}>
+                <div className="traceEventHeader">
+                  <div>
+                    <span>Step {index + 1}</span>
+                    <strong>{task.agent}</strong>
+                    <p>{task.summary}</p>
+                  </div>
+                  <div className="traceEventMeta">
+                    <span className={`decisionPill ${task.status}`}>{task.status}</span>
+                    <span>{formatTraceTime(task.createdAt, task.completedAt)}</span>
+                  </div>
+                </div>
+                <div className="traceDetailsGrid">
+                  <TraceDetails title="Input" value={task.input} />
+                  <TraceDetails title="Output" value={task.output} />
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="emptyState">
+            <strong>No trace events</strong>
+            <p>This run has not recorded agent inputs or outputs yet.</p>
+          </div>
+        )}
+      </section>
+
+      <section className="panel detailPanel">
+        <div className="panelHeader">
           <h2>Model usage</h2>
           <span>{run.modelUsage.length}</span>
         </div>
-        <div className="usageGrid">
-          {run.modelUsage.map((call) => (
-            <div className="usageRow" key={call.id}>
-              <strong>{call.provider}</strong>
-              <span>{call.model}</span>
-              <span>{formatTokens(call.inputTokens, call.outputTokens)}</span>
-            </div>
-          ))}
-        </div>
+        {run.modelUsage.length > 0 ? (
+          <div className="usageGrid">
+            {run.modelUsage.map((call) => (
+              <div className="usageRow" key={call.id}>
+                <strong>{call.provider}</strong>
+                <span>{call.model}</span>
+                <span>{formatTokens(call.inputTokens, call.outputTokens)}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="emptyState">
+            <strong>No model calls</strong>
+            <p>This run has not recorded provider usage yet.</p>
+          </div>
+        )}
       </section>
     </main>
   );
@@ -342,11 +532,16 @@ async function fetchReviewRun(id: string): Promise<{ run: ReviewRunDetail | null
   }
 }
 
-function Metric({ label, value }: Readonly<{ label: string; value: string }>) {
+function Metric({
+  label,
+  value,
+  hint
+}: Readonly<{ label: string; value: string; hint?: string }>) {
   return (
     <div className="metric">
       <span>{label}</span>
       <strong>{value}</strong>
+      {hint ? <small>{hint}</small> : null}
     </div>
   );
 }
@@ -368,6 +563,24 @@ function InfoPanel({
       </div>
       <div className="compactList">{children}</div>
     </section>
+  );
+}
+
+function WorkflowStep({ title, body }: Readonly<{ title: string; body: string }>) {
+  return (
+    <div className="workflowStep">
+      <strong>{title}</strong>
+      <p>{body}</p>
+    </div>
+  );
+}
+
+function TraceDetails({ title, value }: Readonly<{ title: string; value: unknown }>) {
+  return (
+    <details className="traceDetails">
+      <summary>{title}</summary>
+      <pre>{formatTraceJson(value)}</pre>
+    </details>
   );
 }
 
@@ -399,6 +612,100 @@ function formatTokens(inputTokens: number | null, outputTokens: number | null): 
   return `${inputTokens ?? 0} in / ${outputTokens ?? 0} out`;
 }
 
+function formatDuration(startValue: string, endValue: string | null): string {
+  if (!endValue) {
+    return "Running";
+  }
+
+  const durationMs = new Date(endValue).getTime() - new Date(startValue).getTime();
+
+  if (!Number.isFinite(durationMs) || durationMs < 0) {
+    return "--";
+  }
+
+  const seconds = Math.round(durationMs / 1000);
+
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+
+  return `${minutes}m ${remainingSeconds}s`;
+}
+
+function formatTraceTime(startValue: string, endValue: string | null): string {
+  const duration = formatDuration(startValue, endValue);
+
+  if (!endValue || duration === "--") {
+    return duration;
+  }
+
+  return `${duration} at ${new Date(endValue).toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit"
+  })}`;
+}
+
+function formatTraceJson(value: unknown): string {
+  return JSON.stringify(value ?? null, null, 2);
+}
+
+function shortSha(value: string): string {
+  return value.slice(0, 7);
+}
+
+function isHighPriorityFinding(finding: ReviewRunDetail["findingsList"][number]): boolean {
+  return finding.severity === "high" || finding.severity === "critical";
+}
+
+function getHumanGateStatus(
+  status: string,
+  highPriorityFindings: number
+): { kind: string; label: string; description: string } {
+  if (status !== "COMPLETED") {
+    return {
+      kind: "pending",
+      label: "Pending",
+      description: "Council output is still being prepared."
+    };
+  }
+
+  if (highPriorityFindings > 0) {
+    return {
+      kind: "blocked",
+      label: "Review needed",
+      description: `${highPriorityFindings} high-priority findings need human attention.`
+    };
+  }
+
+  return {
+    kind: "clear",
+    label: "Ready to inspect",
+    description: "No high-priority final findings were recorded."
+  };
+}
+
+function extractReviewContext(trace: ReviewRunDetail["trace"]): ReviewContextBundle | null {
+  const task = trace.find((item) => item.agent === "context_builder");
+  const output = task?.output;
+
+  if (!isRecord(output)) {
+    return null;
+  }
+
+  return {
+    repoFiles: readContextFiles(output.repoFiles),
+    repoGuidelines: readContextFiles(output.repoGuidelines),
+    relatedFiles: readContextFiles(output.relatedFiles),
+    toolSignals: readToolSignals(output.toolSignals),
+    reviewFocus: Array.isArray(output.reviewFocus)
+      ? output.reviewFocus.filter((item): item is string => typeof item === "string")
+      : []
+  };
+}
+
 function extractCandidateFindings(trace: ReviewRunDetail["trace"]): ReviewFindingCandidate[] {
   const task = trace.find((item) => item.agent === "candidate_findings");
   const output = task?.output;
@@ -408,6 +715,30 @@ function extractCandidateFindings(trace: ReviewRunDetail["trace"]): ReviewFindin
   }
 
   return output.candidates.filter(isReviewFindingCandidate);
+}
+
+function readContextFiles(value: unknown): ReviewContextBundle["repoFiles"] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter(isContextFile);
+}
+
+function readToolSignals(value: unknown): ReviewContextBundle["toolSignals"] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter(isToolSignal);
+}
+
+function isContextFile(value: unknown): value is ReviewContextBundle["repoFiles"][number] {
+  return isRecord(value) && typeof value.path === "string" && typeof value.role === "string";
+}
+
+function isToolSignal(value: unknown): value is ReviewContextBundle["toolSignals"][number] {
+  return isRecord(value);
 }
 
 function extractRefereeDecision(trace: ReviewRunDetail["trace"]): RefereeDecision | null {
@@ -426,6 +757,33 @@ function extractRefereeDecision(trace: ReviewRunDetail["trace"]): RefereeDecisio
     duplicateGroups: readNumber(output.duplicateGroups),
     decisions
   };
+}
+
+function extractExecutionIssues(trace: ReviewRunDetail["trace"]): ExecutionIssue[] {
+  return trace
+    .filter((item) => item.status === "failed" && ["input_guard", "execution_error"].includes(item.agent))
+    .map((item) => {
+      const output = item.output;
+
+      if (!isRecord(output)) {
+        return {
+          agent: item.agent,
+          code: "execution_failed",
+          message: "Review execution failed before a complete trace was recorded.",
+          recoverable: false
+        };
+      }
+
+      return {
+        agent: item.agent,
+        code: typeof output.code === "string" ? output.code : "execution_failed",
+        message:
+          typeof output.message === "string"
+            ? output.message
+            : "Review execution failed before a complete trace was recorded.",
+        recoverable: output.recoverable === true
+      };
+    });
 }
 
 function groupCandidatesByReviewer(

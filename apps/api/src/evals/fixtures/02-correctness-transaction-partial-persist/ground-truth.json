@@ -1,0 +1,17 @@
+{
+  "id": "gt-002",
+  "title": "Review run persistence can leave partial data",
+  "category": "correctness",
+  "severity": "medium",
+  "file": "apps/api/src/review-runs/review-run-service.ts",
+  "lineRange": [88, 104],
+  "expectedSignals": [
+    "partial",
+    "transaction",
+    "changed-file",
+    "persistence"
+  ],
+  "acceptableCategories": ["correctness", "quality"],
+  "acceptableSeverities": ["medium", "high"],
+  "explanation": "Creating the review run before changed-file persistence without a transaction can leave a partial run if child inserts fail."
+}

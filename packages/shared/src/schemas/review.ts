@@ -5,6 +5,26 @@ export const ConfidenceSchema = z.number().min(0).max(1);
 export const ReviewerKindSchema = z.enum(["security", "quality", "test", "generic"]);
 export const RefereeCandidateDecisionSchema = z.enum(["accepted", "merged", "rejected"]);
 
+export const ToolSignalSchema = z.object({
+  id: z.string().min(1),
+  source: z.enum(["typescript", "eslint", "semgrep", "secret-scan", "test", "manual"]),
+  kind: z.string().min(1),
+  file: z.string().min(1).optional(),
+  startLine: z.number().int().positive().optional(),
+  endLine: z.number().int().positive().optional(),
+  severity: SeveritySchema.default("info"),
+  message: z.string().min(1),
+  evidence: z.array(z.string()).default([]),
+  command: z.string().min(1).optional()
+});
+
+export const RepositoryFileContextSchema = z.object({
+  path: z.string().min(1),
+  role: z.enum(["guideline", "source", "test", "config", "schema"]).default("source"),
+  content: z.string().min(1).optional(),
+  summary: z.string().min(1).optional()
+});
+
 export const ReviewFindingSchema = z.object({
   id: z.string(),
   title: z.string().min(1),
@@ -93,3 +113,5 @@ export type RefereeDecision = z.infer<typeof RefereeDecisionSchema>;
 export type ReviewPlan = z.infer<typeof ReviewPlanSchema>;
 export type ReviewPlanTask = z.infer<typeof ReviewPlanTaskSchema>;
 export type AgentTaskMessage = z.infer<typeof AgentTaskMessageSchema>;
+export type ToolSignal = z.infer<typeof ToolSignalSchema>;
+export type RepositoryFileContext = z.infer<typeof RepositoryFileContextSchema>;

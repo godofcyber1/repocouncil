@@ -105,9 +105,13 @@ describe("review run queries", () => {
             id: "task_1",
             agent: "security_reviewer",
             status: "completed",
-            output: {
-              candidates: []
+            input: {
+              reviewer: "security"
             },
+            output: {
+              message: "Produced 1 candidate finding."
+            },
+            createdAt,
             completedAt
           }
         ],
@@ -153,9 +157,14 @@ describe("review run queries", () => {
       id: "task_1",
       agent: "security_reviewer",
       status: "completed",
-      output: {
-        candidates: []
+      input: {
+        reviewer: "security"
       },
+      output: {
+        message: "Produced 1 candidate finding."
+      },
+      summary: "Produced 1 candidate finding.",
+      createdAt: "2026-06-07T10:00:00.000Z",
       completedAt: "2026-06-07T10:01:00.000Z"
     });
   });

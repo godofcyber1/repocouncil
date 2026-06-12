@@ -35,7 +35,7 @@ export const EvalFindingSchema = z.object({
 
 export const EvalInputSchema = z.object({
   stage: z.string().min(1),
-  mode: z.enum(["baseline", "council"]),
+  mode: z.enum(["bare", "baseline", "council"]),
   experimentKind: EvalExperimentKindSchema.default("stage"),
   variant: z.string().min(1).optional(),
   enabledCapabilities: z.array(z.string().min(1)).default([]),
@@ -60,7 +60,7 @@ export type EvalInput = z.infer<typeof EvalInputSchema>;
 
 export type EvalResult = {
   stage: string;
-  mode: "baseline" | "council";
+  mode: "bare" | "baseline" | "council";
   experiment_kind: "stage" | "ablation";
   variant: string;
   enabled_capabilities: string[];

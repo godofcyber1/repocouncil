@@ -4,7 +4,12 @@ import { prisma } from "../db/prisma.js";
 import { parsePatchHunks } from "./diff-parser.js";
 import { OctokitGitHubClient, type GitHubClient } from "./github-client.js";
 
-const SUPPORTED_ACTIONS = new Set(["opened", "reopened", "synchronize", "ready_for_review"]);
+export const SUPPORTED_PULL_REQUEST_ACTIONS = new Set([
+  "opened",
+  "reopened",
+  "synchronize",
+  "ready_for_review"
+]);
 
 export type WebhookServiceDeps = {
   db?: PrismaClient;
@@ -18,7 +23,7 @@ export async function handlePullRequestEvent(
 ) {
   const event = PullRequestWebhookSchema.parse(payload);
 
-  if (!SUPPORTED_ACTIONS.has(event.action)) {
+  if (!SUPPORTED_PULL_REQUEST_ACTIONS.has(event.action)) {
     return { accepted: false, reason: "ignored_action", deliveryId };
   }
 

@@ -51,7 +51,10 @@ export type ReviewRunDetail = ReviewRunSummary & {
     id: string;
     agent: string;
     status: string;
+    input: unknown;
     output: unknown;
+    summary: string;
+    createdAt: string;
     completedAt: string | null;
   }>;
   modelUsage: Array<{
@@ -192,7 +195,10 @@ export async function getReviewRunDetail(
       id: task.id,
       agent: task.agent,
       status: task.status,
+      input: task.input,
       output: task.output,
+      summary: summarizeTraceOutput(task.agent, task.output),
+      createdAt: task.createdAt.toISOString(),
       completedAt: task.completedAt?.toISOString() ?? null
     })),
     modelUsage: run.modelCalls.map((call) => ({
@@ -205,4 +211,50 @@ export async function getReviewRunDetail(
       createdAt: call.createdAt.toISOString()
     }))
   };
+}
+
+function summarizeTraceOutput(agent: string, output: unknown): string {
+  if (!output || typeof output !== "object") {
+    return "No structured output recorded.";
+  }
+
+  const record = output as Record<string, unknown>;
+
+  if (agent === "candidate_findings" && Array.isArray(record.candidates)) {
+    return `${record.candidates.length} candidate finding(s) recorded.`;
+  }
+
+  if (agent === "referee_decision") {
+    return `${readNumber(record.candidateCount)} candidate(s) reduced to ${readNumber(
+      record.finalCount
+    )} final finding(s).`;
+  }
+
+  if (agent === "context_builder" && Array.isArray(record.changedFiles)) {
+    return `${record.changedFiles.length} changed file(s), ${readArrayLength(
+      record.repoFiles
+    )} repo context file(s), ${readArrayLength(record.toolSignals)} tool signal(s).`;
+  }
+
+  if (agent === "planner" && Array.isArray(record.tasks)) {
+    return `${record.tasks.length} planned review task(s).`;
+  }
+
+  if (typeof record.message === "string") {
+    return record.message;
+  }
+
+  if (typeof record.code === "string" && typeof record.message === "string") {
+    return `${record.code}: ${record.message}`;
+  }
+
+  return `${Object.keys(record).length} output field(s) recorded.`;
+}
+
+function readArrayLength(value: unknown): number {
+  return Array.isArray(value) ? value.length : 0;
+}
+
+function readNumber(value: unknown): number {
+  return typeof value === "number" ? value : 0;
 }

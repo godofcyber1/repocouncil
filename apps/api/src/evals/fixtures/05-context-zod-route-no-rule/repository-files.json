@@ -1,0 +1,7 @@
+[
+  {
+    "path": "apps/api/package.json",
+    "role": "config",
+    "summary": "The API workspace uses TypeScript, Express, Zod, and Vitest, but no repository rule requires Zod validation for every API input."
+  }
+]

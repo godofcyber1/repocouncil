@@ -1,0 +1,12 @@
+[
+  {
+    "path": "AGENTS.md",
+    "role": "guideline",
+    "summary": "All API inputs must be validated with Zod before use."
+  },
+  {
+    "path": "apps/api/package.json",
+    "role": "config",
+    "summary": "The API workspace uses TypeScript, Express, Zod, and Vitest."
+  }
+]

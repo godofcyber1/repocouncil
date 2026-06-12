@@ -1,0 +1,7 @@
+[
+  {
+    "path": "AGENTS.md",
+    "role": "guideline",
+    "summary": "Webhook authentication failures must fail closed before any persistence or side effect."
+  }
+]

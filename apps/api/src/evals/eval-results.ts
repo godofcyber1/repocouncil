@@ -4,7 +4,7 @@ import { z } from "zod";
 
 const EvalResultFileSchema = z.object({
   stage: z.string().min(1),
-  mode: z.enum(["baseline", "council"]),
+  mode: z.enum(["bare", "baseline", "council"]),
   experiment_kind: z.enum(["stage", "ablation"]).default("stage"),
   variant: z.string().min(1).optional(),
   enabled_capabilities: z.array(z.string()).default([]),
@@ -34,9 +34,29 @@ const EvalResultFileSchema = z.object({
   repocouncil_score: z.number()
 });
 
+const EvalFailureFileSchema = z.object({
+  status: z.literal("failed"),
+  stage: z.string().min(1),
+  mode: z.enum(["bare", "baseline", "council"]),
+  experiment_kind: z.enum(["stage", "ablation"]).default("stage"),
+  variant: z.string().min(1),
+  enabled_capabilities: z.array(z.string()).default([]),
+  disabled_capabilities: z.array(z.string()).default([]),
+  provider: z.string().min(1).default("default"),
+  command: z.string().min(1),
+  message: z.string().min(1),
+  stack: z.string().optional(),
+  latency_ms: z.number().nonnegative(),
+  created_at: z.string().min(1)
+});
+
 export type EvalResultRecord = Omit<z.infer<typeof EvalResultFileSchema>, "variant"> & {
   fileName: string;
   variant: string;
+};
+
+export type EvalFailureRecord = z.infer<typeof EvalFailureFileSchema> & {
+  fileName: string;
 };
 
 export type EvalResultReadError = {
@@ -47,6 +67,7 @@ export type EvalResultReadError = {
 export type EvalResultsSummary = {
   sourceDir: string;
   results: EvalResultRecord[];
+  failures: EvalFailureRecord[];
   errors: EvalResultReadError[];
 };
 
@@ -55,11 +76,22 @@ export async function listEvalResults(
 ): Promise<EvalResultsSummary> {
   const files = await listJsonFiles(sourceDir);
   const results: EvalResultRecord[] = [];
+  const failures: EvalFailureRecord[] = [];
   const errors: EvalResultReadError[] = [];
 
   for (const fileName of files) {
     try {
       const raw = JSON.parse(await fs.readFile(path.join(sourceDir, fileName), "utf8")) as unknown;
+      const failure = EvalFailureFileSchema.safeParse(raw);
+
+      if (failure.success) {
+        failures.push({
+          ...failure.data,
+          fileName
+        });
+        continue;
+      }
+
       const parsed = EvalResultFileSchema.parse(raw);
       results.push({
         ...parsed,
@@ -77,6 +109,7 @@ export async function listEvalResults(
   return {
     sourceDir,
     results: results.sort(compareEvalResults),
+    failures: failures.sort(compareEvalFailures),
     errors
   };
 }
@@ -101,6 +134,16 @@ async function listJsonFiles(sourceDir: string): Promise<string[]> {
 function compareEvalResults(left: EvalResultRecord, right: EvalResultRecord): number {
   return (
     left.experiment_kind.localeCompare(right.experiment_kind) ||
+    left.stage.localeCompare(right.stage) ||
+    left.mode.localeCompare(right.mode) ||
+    left.variant.localeCompare(right.variant) ||
+    left.fileName.localeCompare(right.fileName)
+  );
+}
+
+function compareEvalFailures(left: EvalFailureRecord, right: EvalFailureRecord): number {
+  return (
+    right.created_at.localeCompare(left.created_at) ||
     left.stage.localeCompare(right.stage) ||
     left.mode.localeCompare(right.mode) ||
     left.variant.localeCompare(right.variant) ||

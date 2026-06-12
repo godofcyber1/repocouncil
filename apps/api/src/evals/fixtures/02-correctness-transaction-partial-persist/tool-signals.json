@@ -1,0 +1,14 @@
+[
+  {
+    "id": "typescript:apps/api/src/review-runs/review-run-service.ts:91:TS2322",
+    "source": "typescript",
+    "kind": "TS2322",
+    "file": "apps/api/src/review-runs/review-run-service.ts",
+    "startLine": 91,
+    "endLine": 96,
+    "severity": "medium",
+    "message": "Changed-file persistence shape does not match the Prisma createMany input.",
+    "evidence": ["TS2322 on changed-file persistence data shape."],
+    "command": "tsc --noEmit"
+  }
+]

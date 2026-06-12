@@ -1,0 +1,17 @@
+{
+  "id": "gt-003",
+  "title": "Referee scoring tie-break lacks regression coverage",
+  "category": "testing",
+  "severity": "medium",
+  "file": "apps/api/src/langgraph/referee.ts",
+  "lineRange": [34, 52],
+  "expectedSignals": [
+    "referee",
+    "tie-break",
+    "test",
+    "evidence"
+  ],
+  "acceptableCategories": ["testing", "test"],
+  "acceptableSeverities": ["medium", "high"],
+  "explanation": "Changing referee scoring weights without a focused tie-break regression test can silently change which finding gets published."
+}

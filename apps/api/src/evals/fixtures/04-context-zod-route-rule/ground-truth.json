@@ -1,0 +1,18 @@
+{
+  "id": "gt-004",
+  "title": "Repository rule requiring Zod validation is bypassed",
+  "category": "correctness",
+  "severity": "medium",
+  "file": "apps/api/src/github/webhook-router.ts",
+  "lineRange": [18, 30],
+  "expectedSignals": [
+    "zod",
+    "validation",
+    "req.body",
+    "repository rule",
+    "api inputs"
+  ],
+  "acceptableCategories": ["correctness", "maintainability"],
+  "acceptableSeverities": ["medium", "high"],
+  "explanation": "The repository rule says API inputs must be validated with Zod, but the route reads req.body directly before parsing."
+}

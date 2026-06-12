@@ -27,13 +27,39 @@ describe("listEvalResults", () => {
         ),
         "utf8"
       ),
+      fs.writeFile(
+        path.join(sourceDir, "stage-0-council-failure.json"),
+        JSON.stringify({
+          status: "failed",
+          stage: "stage-0",
+          mode: "council",
+          experiment_kind: "stage",
+          variant: "stage-0",
+          enabled_capabilities: [],
+          disabled_capabilities: [],
+          provider: "qwen",
+          command: "npm.cmd run eval -- --provider qwen",
+          message: "QWEN_API_KEY is required before model calls can run.",
+          latency_ms: 42,
+          created_at: "2026-06-10T00:00:00.000Z"
+        }),
+        "utf8"
+      ),
       fs.writeFile(path.join(sourceDir, "broken.json"), "{", "utf8")
     ]);
 
     const summary = await listEvalResults(sourceDir);
 
     expect(summary.results).toHaveLength(2);
+    expect(summary.failures).toHaveLength(1);
     expect(summary.errors).toHaveLength(1);
+    expect(summary.failures[0]).toEqual(
+      expect.objectContaining({
+        fileName: "stage-0-council-failure.json",
+        provider: "qwen",
+        message: "QWEN_API_KEY is required before model calls can run."
+      })
+    );
     expect(summary.results[0]).toEqual(
       expect.objectContaining({
         experiment_kind: "ablation",

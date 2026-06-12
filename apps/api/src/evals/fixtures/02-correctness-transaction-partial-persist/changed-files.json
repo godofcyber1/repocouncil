@@ -1,0 +1,6 @@
+[
+  {
+    "path": "apps/api/src/review-runs/review-run-service.ts",
+    "patch": "@@ -84,12 +84,18 @@ export async function createReviewRun(input: ReviewRunInput) {\n+  const run = await prisma.reviewRun.create({ data: runData });\n+\n+  await prisma.pullRequestFile.createMany({\n+    data: input.changedFiles.map((file) => ({\n+      reviewRunId: run.id,\n+      path: file.path,\n+      additions: file.additions,\n+      deletions: file.deletions\n+    }))\n+  });\n+\n+  return run;\n }"
+  }
+]

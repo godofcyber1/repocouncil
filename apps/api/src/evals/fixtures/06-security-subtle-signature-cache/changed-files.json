@@ -1,0 +1,6 @@
+[
+  {
+    "path": "apps/api/src/github/webhook-signature.ts",
+    "patch": "@@ -12,17 +12,29 @@ import crypto from \"node:crypto\";\n const algorithm = \"sha256\";\n+const signatureCache = new Map<string, boolean>();\n \n export function verifyGitHubSignature(input: {\n   rawBody: Buffer;\n   signatureHeader: string | undefined;\n   secret: string;\n }) {\n   if (!input.signatureHeader) {\n     return false;\n   }\n+\n+  const cached = signatureCache.get(input.signatureHeader);\n+  if (cached !== undefined) {\n+    return cached;\n+  }\n \n   const expected =\n     \"sha256=\" +\n     crypto\n       .createHmac(algorithm, input.secret)\n       .update(input.rawBody)\n       .digest(\"hex\");\n \n-  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(input.signatureHeader));\n+  const valid = crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(input.signatureHeader));\n+  signatureCache.set(input.signatureHeader, valid);\n+  return valid;\n }"
+  }
+]

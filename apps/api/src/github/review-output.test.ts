@@ -42,6 +42,21 @@ describe("review output formatting", () => {
     expect(output.conclusion).toBe("failure");
   });
 
+  it("includes suggested patch and suggested tests in annotation messages", () => {
+    const output = buildCheckRunOutput([
+      finding({
+        body: "The webhook debug path bypasses signature validation.",
+        suggestedPatch: "Always verify the signed raw body.",
+        suggestedTests: "Assert debug requests with invalid signatures return 401."
+      })
+    ]);
+
+    expect(output.annotations[0]?.message).toContain("Suggested patch");
+    expect(output.annotations[0]?.message).toContain("Always verify the signed raw body.");
+    expect(output.annotations[0]?.message).toContain("Suggested tests");
+    expect(output.annotations[0]?.message).toContain("invalid signatures return 401");
+  });
+
   it("does not emit inline annotations for findings without line locations", () => {
     const output = buildCheckRunOutput([
       finding({
@@ -97,11 +112,19 @@ describe("review output formatting", () => {
 
   it("builds a PR summary with dashboard link and human review reminder", () => {
     const summary = buildPullRequestSummary([finding()], {
-      dashboardUrl: "https://example.test/runs/run_1"
+      dashboardUrl: "https://example.test/runs/run_1",
+      reviewerContributions: [
+        { label: "security reviewer", summary: "1 accepted" },
+        { label: "test reviewer", summary: "1 merged into suggestedTests" },
+        { label: "referee", summary: "2 candidates -> 1 published finding" }
+      ]
     });
 
     expect(summary).toContain("## RepoCouncil Review");
     expect(summary).toContain("Missing regression test");
+    expect(summary).toContain("security reviewer: 1 accepted");
+    expect(summary).toContain("test reviewer: 1 merged into suggestedTests");
+    expect(summary).toContain("referee: 2 candidates -> 1 published finding");
     expect(summary).toContain("Open RepoCouncil dashboard");
     expect(summary).toContain("Human review is still required");
   });

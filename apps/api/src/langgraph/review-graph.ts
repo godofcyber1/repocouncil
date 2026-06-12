@@ -1,12 +1,16 @@
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
+import { z } from "zod";
 import {
   ReviewFindingListSchema,
   ReviewPlanSchema,
   type RefereeDecision,
+  type RepositoryFileContext,
   type ReviewFinding,
   type ReviewFindingCandidate,
+  type ReviewFindingList,
   type ReviewPlan,
-  type ReviewerKind
+  type ReviewerKind,
+  type ToolSignal
 } from "@repocouncil/shared";
 import { MockModelProvider } from "../models/mock-provider.js";
 import type { ModelProvider } from "../models/model-provider.js";
@@ -21,6 +25,8 @@ export type ReviewGraphInput = {
   headSha: string;
   mode?: ReviewGraphMode;
   changedFiles?: ReviewGraphFile[];
+  repositoryFiles?: RepositoryFileContext[];
+  toolSignals?: ToolSignal[];
 };
 
 export type ReviewGraphFile = {
@@ -30,8 +36,11 @@ export type ReviewGraphFile = {
 
 export type ReviewGraphContext = {
   changedFiles: ReviewGraphFile[];
-  repoGuidelines: string[];
-  toolSignals: string[];
+  repoFiles: RepositoryFileContext[];
+  repoGuidelines: RepositoryFileContext[];
+  relatedFiles: RepositoryFileContext[];
+  toolSignals: ToolSignal[];
+  reviewFocus: string[];
 };
 
 export type ReviewGraphResult = {
@@ -52,6 +61,11 @@ export type ReviewGraphTraceEvent = {
 export type ReviewGraphDeps = {
   modelProvider?: ModelProvider;
   model?: string;
+  models?: {
+    planner?: string;
+    reviewer?: string;
+    referee?: string;
+  };
 };
 
 const ReviewGraphState = Annotation.Root({
@@ -81,8 +95,13 @@ export async function runReviewGraph(
 ): Promise<ReviewGraphResult> {
   const modelProvider = deps.modelProvider ?? new MockModelProvider();
   const model = deps.model ?? "mock-reviewer";
+  const models = {
+    planner: deps.models?.planner ?? model,
+    reviewer: deps.models?.reviewer ?? model,
+    referee: deps.models?.referee ?? "deterministic-referee"
+  };
   const mode = input.mode ?? "baseline";
-  const graph = createReviewGraph(mode, modelProvider, model);
+  const graph = createReviewGraph(mode, modelProvider, models);
 
   const result = await graph.invoke({
     input: {
@@ -117,10 +136,14 @@ export async function runReviewGraph(
 function createReviewGraph(
   mode: ReviewGraphMode,
   modelProvider: ModelProvider,
-  model: string
+  models: {
+    planner: string;
+    reviewer: string;
+    referee: string;
+  }
 ) {
   const graph = new StateGraph(ReviewGraphState)
-    .addNode("planner", createPlannerNode(modelProvider, model))
+    .addNode("planner", createPlannerNode(modelProvider, models.planner))
     .addNode("contextBuilder", createContextBuilderNode())
     .addNode("referee", createRefereeNode())
     .addEdge(START, "planner")
@@ -128,17 +151,17 @@ function createReviewGraph(
 
   if (mode === "baseline") {
     return graph
-      .addNode("genericReviewer", createReviewerNode("generic", modelProvider, model))
+      .addNode("genericReviewer", createReviewerNode("generic", modelProvider, models.reviewer))
       .addEdge("contextBuilder", "genericReviewer")
       .addEdge("genericReviewer", "referee")
       .addEdge("referee", END)
-      .compile();
+    .compile();
   }
 
   return graph
-    .addNode("securityReviewer", createReviewerNode("security", modelProvider, model))
-    .addNode("qualityReviewer", createReviewerNode("quality", modelProvider, model))
-    .addNode("testReviewer", createReviewerNode("test", modelProvider, model))
+    .addNode("securityReviewer", createReviewerNode("security", modelProvider, models.reviewer))
+    .addNode("qualityReviewer", createReviewerNode("quality", modelProvider, models.reviewer))
+    .addNode("testReviewer", createReviewerNode("test", modelProvider, models.reviewer))
     .addEdge("contextBuilder", "securityReviewer")
     .addEdge("contextBuilder", "qualityReviewer")
     .addEdge("contextBuilder", "testReviewer")
@@ -170,7 +193,12 @@ function createPlannerNode(modelProvider: ModelProvider, model: string) {
       ]
     });
 
-    const plan = ReviewPlanSchema.parse(response.data);
+    const plan = parseModelOutput<ReviewPlan>(
+      ReviewPlanSchema,
+      response.data,
+      response.rawText,
+      "ReviewPlan"
+    );
 
     return {
       plan,
@@ -186,10 +214,19 @@ function createPlannerNode(modelProvider: ModelProvider, model: string) {
 
 function createContextBuilderNode() {
   return async (state: ReviewGraphStateType) => {
+    const changedFiles = state.input.changedFiles ?? [];
+    const repositoryFiles = state.input.repositoryFiles ?? [];
+    const toolSignals = state.input.toolSignals ?? [];
+    const changedPaths = new Set(changedFiles.map((file) => file.path));
     const context: ReviewGraphContext = {
-      changedFiles: state.input.changedFiles ?? [],
-      repoGuidelines: [],
-      toolSignals: []
+      changedFiles,
+      repoFiles: repositoryFiles,
+      repoGuidelines: repositoryFiles.filter((file) => file.role === "guideline"),
+      relatedFiles: repositoryFiles.filter(
+        (file) => file.role !== "guideline" && isRelatedRepositoryFile(file, changedPaths)
+      ),
+      toolSignals: toolSignals.filter((signal) => isRelatedToolSignal(signal, changedPaths)),
+      reviewFocus: buildReviewFocus(changedFiles, repositoryFiles, toolSignals)
     };
 
     return {
@@ -202,6 +239,84 @@ function createContextBuilderNode() {
       ]
     };
   };
+}
+
+function isRelatedRepositoryFile(
+  file: RepositoryFileContext,
+  changedPaths: Set<string>
+): boolean {
+  if (changedPaths.has(file.path)) {
+    return true;
+  }
+
+  if (file.role === "test") {
+    return [...changedPaths].some((changedPath) => sameStem(file.path, changedPath));
+  }
+
+  if (file.role === "config" || file.role === "schema") {
+    return true;
+  }
+
+  return false;
+}
+
+function isRelatedToolSignal(signal: ToolSignal, changedPaths: Set<string>): boolean {
+  return !signal.file || changedPaths.has(signal.file);
+}
+
+function buildReviewFocus(
+  changedFiles: ReviewGraphFile[],
+  repositoryFiles: RepositoryFileContext[],
+  toolSignals: ToolSignal[]
+): string[] {
+  const changedPaths = new Set(changedFiles.map((file) => file.path));
+  const symbols = changedFiles.flatMap(extractChangedSymbols);
+  const relatedTests = repositoryFiles
+    .filter((file) => file.role === "test" && [...changedPaths].some((changedPath) => sameStem(file.path, changedPath)))
+    .map((file) => file.path);
+  const relatedSignals = toolSignals
+    .filter((signal) => signal.file && changedPaths.has(signal.file))
+    .map((signal) => `${signal.source}:${signal.kind}:${signal.file}`);
+
+  return [
+    ...changedFiles.map((file) => `diff:${file.path}`),
+    ...symbols.map((symbol) => `symbol:${symbol}`),
+    ...relatedTests.map((file) => `test:${file}`),
+    ...relatedSignals
+  ];
+}
+
+function extractChangedSymbols(file: ReviewGraphFile): string[] {
+  const patch = file.patch ?? "";
+  const symbols = new Set<string>();
+  const symbolPattern =
+    /^\+.*\b(?:function|class|const|let|var|async function)\s+([A-Za-z_][A-Za-z0-9_]*)/gm;
+  let match: RegExpExecArray | null;
+
+  while ((match = symbolPattern.exec(patch)) !== null) {
+    const symbol = match[1];
+    if (symbol) {
+      symbols.add(`${file.path}#${symbol}`);
+    }
+  }
+
+  return [...symbols];
+}
+
+function sameStem(leftPath: string, rightPath: string): boolean {
+  const leftStem = normalizeStem(leftPath);
+  const rightStem = normalizeStem(rightPath);
+
+  return leftStem.length > 0 && rightStem.length > 0 && (leftStem.includes(rightStem) || rightStem.includes(leftStem));
+}
+
+function normalizeStem(filePath: string): string {
+  const fileName = filePath.split(/[\\/]/).pop() ?? filePath;
+
+  return fileName
+    .replace(/\.(test|spec)\.[^.]+$/, "")
+    .replace(/\.[^.]+$/, "")
+    .toLowerCase();
 }
 
 function createReviewerNode(
@@ -229,7 +344,12 @@ function createReviewerNode(
       ]
     });
 
-    const parsed = ReviewFindingListSchema.parse(response.data);
+    const parsed = parseModelOutput<ReviewFindingList>(
+      ReviewFindingListSchema,
+      response.data,
+      response.rawText,
+      "ReviewFindingList"
+    );
     const candidates = parsed.findings.map((finding, index) =>
       toCandidate(finding, reviewer, `${state.input.reviewRunId}:${reviewer}:${index}`)
     );
@@ -279,7 +399,15 @@ function toCandidate(
 
 function reviewerPrompt(reviewer: ReviewerKind): string {
   if (reviewer === "security") {
-    return "You are RepoCouncil Security Reviewer. Return only evidence-backed security findings.";
+    return [
+      "You are RepoCouncil Security Reviewer. Return only evidence-backed security findings.",
+      "Pay special attention to webhook, authentication, signature, token, permission, and tenant-boundary validation paths.",
+      "For webhook signature verification, the signed raw body must be part of the verification.",
+      "Verification results must not be cached only by signature header.",
+      "Any auth, signature, or cache key must include every security-sensitive input that can affect the result.",
+      "Treat caches in auth, token, permission, signature, or webhook validation paths as high-risk unless the cache key includes all relevant context.",
+      "For each finding, explain whether the result depends on rawBody, secret, signatureHeader, user, tenant, or permission context."
+    ].join(" ");
   }
 
   if (reviewer === "quality") {
@@ -295,4 +423,33 @@ function reviewerPrompt(reviewer: ReviewerKind): string {
 
 function reviewerNodeName(reviewer: ReviewerKind): string {
   return reviewer === "generic" ? "generic_reviewer" : `${reviewer}_reviewer`;
+}
+
+function parseModelOutput<T>(
+  schema: {
+    safeParse(data: unknown): z.SafeParseReturnType<unknown, T>;
+  },
+  data: unknown,
+  rawText: string,
+  schemaName: string
+): T {
+  const result = schema.safeParse(data);
+
+  if (result.success) {
+    return result.data;
+  }
+
+  throw new Error(
+    [
+      `${schemaName} model output failed schema validation.`,
+      `Issues: ${result.error.issues.map((issue) => `${issue.path.join(".") || "<root>"}: ${issue.message}`).join("; ")}`,
+      `Raw output: ${summarizeRawModelOutput(rawText)}`
+    ].join(" ")
+  );
+}
+
+function summarizeRawModelOutput(rawText: string): string {
+  const compact = rawText.replace(/\s+/g, " ").trim();
+
+  return compact.length > 800 ? `${compact.slice(0, 800)}...` : compact;
 }

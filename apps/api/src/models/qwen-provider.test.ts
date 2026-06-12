@@ -30,7 +30,7 @@ describe("QwenProvider", () => {
 
     const result = await provider.generateJson<{ ok: boolean }>({
       model: "qwen-plus",
-      schemaName: "TestSchema",
+      schemaName: "ReviewPlan",
       messages: [{ role: "user", content: "Return JSON." }]
     });
 
@@ -55,6 +55,8 @@ describe("QwenProvider", () => {
       temperature: 0,
       response_format: { type: "json_object" }
     });
+    expect(JSON.parse(init.body as string).messages[0].content).toContain("planId");
+    expect(JSON.parse(init.body as string).messages[0].content).toContain("tasks");
   });
 
   it("parses JSON wrapped in markdown fences", () => {
