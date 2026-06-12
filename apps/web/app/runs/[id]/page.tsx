@@ -287,9 +287,18 @@ export default async function ReviewRunPage({ params, searchParams }: PageProps)
                   </div>
                   <p>{finding.body}</p>
                   {finding.suggestedPatch || finding.suggestedTests ? (
-                    <div className="suggestionChips">
-                      {finding.suggestedPatch ? <span>Patch suggested</span> : null}
-                      {finding.suggestedTests ? <span>Tests suggested</span> : null}
+                    <div className="findingSuggestions">
+                      <div className="suggestionChips">
+                        {finding.suggestedPatch ? <span>Patch suggested</span> : null}
+                        {finding.suggestedTests ? <span>Tests suggested</span> : null}
+                        <span>Advisory only</span>
+                      </div>
+                      {finding.suggestedPatch ? (
+                        <SuggestionBlock title="Suggested patch" value={finding.suggestedPatch} />
+                      ) : null}
+                      {finding.suggestedTests ? (
+                        <SuggestionBlock title="Suggested tests" value={finding.suggestedTests} />
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
@@ -591,6 +600,20 @@ function TraceDetails({ title, value }: Readonly<{ title: string; value: unknown
         </pre>
       )}
     </details>
+  );
+}
+
+function SuggestionBlock({ title, value }: Readonly<{ title: string; value: string }>) {
+  return (
+    <section className="suggestionBlock">
+      <div>
+        <strong>{title}</strong>
+        <span>Human approval required</span>
+      </div>
+      <pre>
+        <code>{value}</code>
+      </pre>
+    </section>
   );
 }
 

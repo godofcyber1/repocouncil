@@ -145,12 +145,13 @@ function jsonContractForSchema(schemaName: string): string {
       '      "confidence": 0.0,',
       '      "category": "security | correctness | testing | maintainability",',
       '      "evidence": ["specific evidence from diff, repo context, or toolSignals"],',
-      '      "suggestedPatch": "optional patch text",',
-      '      "suggestedTests": "optional test suggestion"',
+      '      "suggestedPatch": "optional advisory patch text for a human reviewer; never imply it will be applied automatically",',
+      '      "suggestedTests": "optional advisory test suggestion with concrete cases or assertions"',
       "    }",
       "  ]",
       "}",
-      "Use an empty findings array when there is no high-confidence evidence-backed issue."
+      "Use an empty findings array when there is no high-confidence evidence-backed issue.",
+      "Patch and test suggestions are advisory only. RepoCouncil must not claim to merge, push, or apply them automatically."
     ].join("\n");
   }
 

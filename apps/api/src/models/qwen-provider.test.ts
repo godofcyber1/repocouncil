@@ -65,6 +65,50 @@ describe("QwenProvider", () => {
     });
   });
 
+  it("marks review suggestions as advisory in the finding contract", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({ findings: [] })
+              }
+            }
+          ]
+        }),
+        { status: 200 }
+      )
+    );
+
+    const provider = new QwenProvider({
+      apiKey: "test-key",
+      baseUrl: "https://example.test/compatible-mode/v1",
+      fetchImpl: fetchMock as unknown as typeof fetch
+    });
+
+    await provider.generateJson({
+      model: "qwen-turbo",
+      schemaName: "ReviewFindingList",
+      messages: [{ role: "user", content: "Review this PR." }]
+    });
+
+    const firstCall = fetchMock.mock.calls[0];
+
+    if (!firstCall) {
+      throw new Error("Expected fetch to be called.");
+    }
+
+    const [, init] = firstCall as unknown as [string, RequestInit];
+    const body = JSON.parse(init.body as string);
+    const contract = body.messages[0].content as string;
+
+    expect(contract).toContain("suggestedPatch");
+    expect(contract).toContain("suggestedTests");
+    expect(contract).toContain("advisory only");
+    expect(contract).toContain("must not claim to merge, push, or apply");
+  });
+
   it("throws on non-2xx responses", async () => {
     const fetchMock = vi.fn(async () => new Response("bad request", { status: 400 }));
 

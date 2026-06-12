@@ -64,6 +64,7 @@ Low-confidence or unsupported ideas can remain in the dashboard trace without be
   - annotation batching beyond GitHub's 50-per-request limit
   - PR summary comments
 - Manual rerun support.
+- Advisory patch and test suggestions surfaced in GitHub output and the dashboard.
 - Fixed evaluation fixtures and JSON metric output.
 
 ## Status
@@ -76,6 +77,7 @@ Implemented and locally verified:
 - P1: repository context
 - P2: tool evidence runtime slice
 - P4 mocked GitHub publish path
+- P5 advisory patch/test suggestion visibility
 
 Still pending before production claims:
 
