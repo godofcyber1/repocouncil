@@ -6,7 +6,12 @@ import { discoverRepositoryContext } from "../context/repo-context.js";
 import { prisma } from "../db/prisma.js";
 import { collectToolEvidence } from "../evidence/tool-evidence-runtime.js";
 import { OctokitGitHubClient, type GitHubClient } from "../github/github-client.js";
-import { runReviewGraph, type ReviewGraphResult } from "../langgraph/review-graph.js";
+import {
+  runReviewGraph,
+  type ReviewGraphInput,
+  type ReviewGraphResult,
+  type ReviewGraphTraceEvent
+} from "../langgraph/review-graph.js";
 import type { ModelProvider } from "../models/model-provider.js";
 import { createModelProvider } from "../models/provider-factory.js";
 
@@ -111,17 +116,18 @@ export async function executeReviewRun(
             timeoutMs: config.toolEvidenceTimeoutMs
           })
         : [];
+    const graphInput: ReviewGraphInput = {
+      reviewRunId: reviewRun.id,
+      repository: reviewRun.pullRequest.repository.fullName,
+      pullNumber: reviewRun.pullRequest.number,
+      headSha: reviewRun.headSha,
+      mode: reviewRun.mode === "BASELINE" ? "baseline" : "council",
+      changedFiles,
+      repositoryFiles,
+      toolSignals
+    };
     const graphResult = await runReviewGraph(
-      {
-        reviewRunId: reviewRun.id,
-        repository: reviewRun.pullRequest.repository.fullName,
-        pullNumber: reviewRun.pullRequest.number,
-        headSha: reviewRun.headSha,
-        mode: reviewRun.mode === "BASELINE" ? "baseline" : "council",
-        changedFiles,
-        repositoryFiles,
-        toolSignals
-      },
+      graphInput,
       {
         modelProvider: resolvedProvider.provider,
         model: resolvedProvider.model,
@@ -129,7 +135,7 @@ export async function executeReviewRun(
       }
     );
 
-    await persistGraphResult(db, reviewRun.id, graphResult, {
+    await persistGraphResult(db, reviewRun.id, graphInput, graphResult, {
       provider: resolvedProvider.kind,
       model: resolvedProvider.model
     });
@@ -222,6 +228,7 @@ async function fetchGitHubContextForRun(options: {
 async function persistGraphResult(
   db: PrismaClient,
   reviewRunId: string,
+  graphInput: ReviewGraphInput,
   graphResult: ReviewGraphResult,
   modelCall: {
     provider: string;
@@ -246,7 +253,16 @@ async function persistGraphResult(
         reviewRunId,
         agent: "planner",
         status: "completed",
-        input: {},
+        input: {
+          repository: graphInput.repository,
+          pullNumber: graphInput.pullNumber,
+          headSha: graphInput.headSha,
+          mode: graphInput.mode,
+          changedFiles: graphInput.changedFiles?.map((file) => ({
+            path: file.path,
+            patchPreview: previewText(file.patch)
+          })) ?? []
+        },
         output: graphResult.plan,
         completedAt: new Date()
       }
@@ -257,7 +273,14 @@ async function persistGraphResult(
         reviewRunId,
         agent: "candidate_findings",
         status: "completed",
-        input: {},
+        input: {
+          reviewers:
+            graphInput.mode === "baseline"
+              ? ["generic"]
+              : ["security", "quality", "test"],
+          plan: graphResult.plan,
+          contextSummary: summarizeContextForTrace(graphResult.context)
+        },
         output: {
           candidates: graphResult.candidateFindings
         },
@@ -270,7 +293,11 @@ async function persistGraphResult(
         reviewRunId,
         agent: "context_builder",
         status: "completed",
-        input: {},
+        input: {
+          changedFiles: graphInput.changedFiles ?? [],
+          repositoryFiles: graphInput.repositoryFiles ?? [],
+          toolSignals: graphInput.toolSignals ?? []
+        },
         output: graphResult.context,
         completedAt: new Date()
       }
@@ -281,7 +308,19 @@ async function persistGraphResult(
         reviewRunId,
         agent: "referee_decision",
         status: "completed",
-        input: {},
+        input: {
+          candidateFindings: graphResult.candidateFindings.map((candidate) => ({
+            id: candidate.id,
+            reviewer: candidate.reviewer,
+            title: candidate.title,
+            file: candidate.file,
+            startLine: candidate.startLine,
+            endLine: candidate.endLine,
+            severity: candidate.severity,
+            confidence: candidate.confidence,
+            category: candidate.category
+          }))
+        },
         output: graphResult.refereeDecision,
         completedAt: new Date()
       }
@@ -293,7 +332,7 @@ async function persistGraphResult(
           reviewRunId,
           agent: trace.node,
           status: "completed",
-          input: {},
+          input: buildTraceEventInput(trace, graphInput, graphResult),
           output: trace,
           completedAt: new Date()
         }
@@ -317,6 +356,71 @@ async function persistGraphResult(
       }
     });
   });
+}
+
+function buildTraceEventInput(
+  trace: ReviewGraphTraceEvent,
+  graphInput: ReviewGraphInput,
+  graphResult: ReviewGraphResult
+) {
+  if (trace.node === "planner") {
+    return {
+      repository: graphInput.repository,
+      pullNumber: graphInput.pullNumber,
+      mode: graphInput.mode,
+      changedFiles: graphInput.changedFiles?.map((file) => file.path) ?? []
+    };
+  }
+
+  if (trace.node === "context_builder") {
+    return {
+      changedFiles: graphInput.changedFiles?.map((file) => file.path) ?? [],
+      repositoryFileCount: graphInput.repositoryFiles?.length ?? 0,
+      toolSignalCount: graphInput.toolSignals?.length ?? 0
+    };
+  }
+
+  if (trace.node.endsWith("_reviewer")) {
+    return {
+      plan: graphResult.plan,
+      contextSummary: summarizeContextForTrace(graphResult.context)
+    };
+  }
+
+  if (trace.node === "deterministic_referee") {
+    return {
+      candidateCount: graphResult.candidateFindings.length,
+      candidateIds: graphResult.candidateFindings.map((candidate) => candidate.id)
+    };
+  }
+
+  return {
+    reviewRunId: graphInput.reviewRunId,
+    node: trace.node
+  };
+}
+
+function summarizeContextForTrace(context: ReviewGraphResult["context"]) {
+  return {
+    changedFiles: context.changedFiles.map((file) => file.path),
+    repoGuidelines: context.repoGuidelines.map((file) => file.path),
+    relatedFiles: context.relatedFiles.map((file) => file.path),
+    toolSignals: context.toolSignals.map((signal) => ({
+      id: signal.id,
+      source: signal.source,
+      kind: signal.kind,
+      file: signal.file
+    })),
+    reviewFocus: context.reviewFocus
+  };
+}
+
+function previewText(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  return value.length > 800 ? `${value.slice(0, 800)}...` : value;
 }
 
 function mapFinding(reviewRunId: string, finding: ReviewFinding) {

@@ -576,10 +576,20 @@ function WorkflowStep({ title, body }: Readonly<{ title: string; body: string }>
 }
 
 function TraceDetails({ title, value }: Readonly<{ title: string; value: unknown }>) {
+  const isEmptyInput = title === "Input" && isEmptyRecord(value);
+
   return (
     <details className="traceDetails">
       <summary>{title}</summary>
-      <pre>{formatTraceJson(value)}</pre>
+      {isEmptyInput ? (
+        <p className="traceEmptyNote">
+          No input was captured for this historical trace event. New executions record richer inputs.
+        </p>
+      ) : (
+        <pre>
+          <code>{renderHighlightedJson(value)}</code>
+        </pre>
+      )}
     </details>
   );
 }
@@ -648,8 +658,56 @@ function formatTraceTime(startValue: string, endValue: string | null): string {
   })}`;
 }
 
-function formatTraceJson(value: unknown): string {
-  return JSON.stringify(value ?? null, null, 2);
+function renderHighlightedJson(value: unknown): React.ReactNode[] {
+  const json = JSON.stringify(value ?? null, null, 2);
+  const tokenPattern =
+    /("(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*"(?=\s*:)|"(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*"|true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g;
+  const nodes: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let tokenIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = tokenPattern.exec(json)) !== null) {
+    if (match.index > lastIndex) {
+      nodes.push(json.slice(lastIndex, match.index));
+    }
+
+    const token = match[0];
+    const isKey = /^\s*:/.test(json.slice(match.index + token.length));
+    nodes.push(
+      <span className={jsonTokenClass(token, isKey)} key={`${tokenIndex}:${match.index}`}>
+        {token}
+      </span>
+    );
+    tokenIndex += 1;
+    lastIndex = match.index + token.length;
+  }
+
+  if (lastIndex < json.length) {
+    nodes.push(json.slice(lastIndex));
+  }
+
+  return nodes;
+}
+
+function jsonTokenClass(token: string, isKey: boolean): string {
+  if (token.startsWith('"')) {
+    return isKey ? "jsonKey" : "jsonString";
+  }
+
+  if (token === "true" || token === "false") {
+    return "jsonBoolean";
+  }
+
+  if (token === "null") {
+    return "jsonNull";
+  }
+
+  return "jsonNumber";
+}
+
+function isEmptyRecord(value: unknown): boolean {
+  return isRecord(value) && Object.keys(value).length === 0;
 }
 
 function shortSha(value: string): string {

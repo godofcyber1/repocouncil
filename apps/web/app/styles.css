@@ -1226,7 +1226,8 @@ h2 {
 
 .traceDetails pre {
   border-top: 1px solid var(--line);
-  color: var(--ink);
+  background: #0f172a;
+  color: #dbeafe;
   font-size: 12px;
   line-height: 1.5;
   margin: 0;
@@ -1235,6 +1236,40 @@ h2 {
   padding: 10px;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.traceDetails code {
+  color: inherit;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+.traceEmptyNote {
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 0;
+  padding: 10px;
+}
+
+.jsonKey {
+  color: #93c5fd;
+}
+
+.jsonString {
+  color: #86efac;
+}
+
+.jsonNumber {
+  color: #fbbf24;
+}
+
+.jsonBoolean {
+  color: #f0abfc;
+}
+
+.jsonNull {
+  color: #cbd5e1;
 }
 
 .usageRow {
