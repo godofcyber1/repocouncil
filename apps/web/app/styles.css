@@ -800,6 +800,7 @@ h2 {
 }
 
 .runStatus.running,
+.runStatus.queued,
 .decisionPill.merged {
   background: var(--warning-bg);
   border-color: #fde68a;

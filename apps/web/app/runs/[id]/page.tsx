@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { AutoRefresh } from "../../auto-refresh";
 
 export const dynamic = "force-dynamic";
 
@@ -173,6 +174,7 @@ export default async function ReviewRunPage({ params, searchParams }: PageProps)
 
   return (
     <main className="shell">
+      <AutoRefresh />
       <Link className="backLink" href="/">
         Back to runs
       </Link>

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AutoRefresh } from "./auto-refresh";
 
 export const dynamic = "force-dynamic";
 
@@ -27,11 +28,13 @@ export default async function HomePage() {
   const totalFindings = runs.reduce((count, run) => count + run.findings, 0);
   const completedRuns = runs.filter((run) => run.status === "COMPLETED").length;
   const runningRuns = runs.filter((run) => run.status === "RUNNING").length;
+  const queuedRuns = runs.filter((run) => run.status === "QUEUED").length;
   const councilRuns = runs.filter((run) => run.mode === "COUNCIL").length;
   const modelCalls = runs.reduce((count, run) => count + run.modelCalls, 0);
 
   return (
     <main className="shell">
+      <AutoRefresh />
       <section className="pageHeader">
         <div>
           <p className="eyebrow">Repository review</p>
@@ -55,7 +58,7 @@ export default async function HomePage() {
             <strong>{runs.length > 0 ? "Review queue active" : "Ready for first PR"}</strong>
             <p>
               {runs.length > 0
-                ? `${completedRuns} completed, ${runningRuns} currently running.`
+                ? `${completedRuns} completed, ${queuedRuns} queued, ${runningRuns} running.`
                 : "Replay a fixture or receive a webhook to populate this workspace."}
             </p>
           </div>
@@ -67,7 +70,7 @@ export default async function HomePage() {
         </div>
 
         <div className="metricGrid">
-          <Metric label="Runs" value={runs.length.toString()} hint={`${runningRuns} running`} />
+          <Metric label="Runs" value={runs.length.toString()} hint={`${queuedRuns} queued`} />
           <Metric label="Completed" value={completedRuns.toString()} hint="Ready to inspect" />
           <Metric label="Council" value={councilRuns.toString()} hint="Fan-out mode" />
           <Metric label="Findings" value={totalFindings.toString()} hint={`${modelCalls} calls`} />
