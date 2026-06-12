@@ -7,6 +7,7 @@ describe("publishReviewRunToGitHub", () => {
   it("publishes a completed review run as a check run and summary comment", async () => {
     const db = createDb({
       id: "run_1",
+      status: "COMPLETED",
       headSha: "abc123",
       findings: [
         {
@@ -150,6 +151,7 @@ describe("publishReviewRunToGitHub", () => {
     }));
     const db = createDb({
       id: "run_many",
+      status: "COMPLETED",
       headSha: "abc123",
       findings,
       pullRequest: {
@@ -203,6 +205,30 @@ describe("publishReviewRunToGitHub", () => {
 
     await expect(publishReviewRunToGitHub("missing", { db, github })).rejects.toThrow(
       "ReviewRun not found: missing"
+    );
+    expect(github.createCheckRun).not.toHaveBeenCalled();
+    expect(github.createIssueComment).not.toHaveBeenCalled();
+  });
+
+  it("does not publish failed or incomplete review runs", async () => {
+    const db = createDb({
+      id: "run_failed",
+      status: "FAILED",
+      headSha: "abc123",
+      findings: [],
+      agentTasks: [],
+      pullRequest: {
+        number: 12,
+        repository: {
+          fullName: "godofcyber1/repocouncil-demo",
+          installationId: "12345"
+        }
+      }
+    });
+    const github = createGitHub();
+
+    await expect(publishReviewRunToGitHub("run_failed", { db, github })).rejects.toThrow(
+      "only COMPLETED review runs can be published"
     );
     expect(github.createCheckRun).not.toHaveBeenCalled();
     expect(github.createIssueComment).not.toHaveBeenCalled();

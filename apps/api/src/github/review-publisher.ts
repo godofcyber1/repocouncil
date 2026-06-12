@@ -51,6 +51,12 @@ export async function publishReviewRunToGitHub(
     throw new Error(`ReviewRun not found: ${reviewRunId}`);
   }
 
+  if (reviewRun.status !== "COMPLETED") {
+    throw new Error(
+      `ReviewRun ${reviewRunId} is ${reviewRun.status}; only COMPLETED review runs can be published.`
+    );
+  }
+
   const [owner, repo] = reviewRun.pullRequest.repository.fullName.split("/");
 
   if (!owner || !repo) {
