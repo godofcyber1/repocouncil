@@ -141,6 +141,12 @@ describe("runReviewGraph", () => {
     expect(securityPrompt).toEqual(expect.stringContaining("cached only by signature header"));
     expect(securityPrompt).toEqual(expect.stringContaining("rawBody, secret, signatureHeader"));
     expect(securityPrompt).toEqual(expect.stringContaining("permission context"));
+    expect(securityPrompt).toEqual(
+      expect.stringContaining("Webhook signature verification applies only to webhook handlers")
+    );
+    expect(securityPrompt).toEqual(
+      expect.stringContaining("For admin and API routes, focus on authentication versus authorization")
+    );
   });
 });
 

@@ -147,6 +147,224 @@ describe("deterministic referee", () => {
     );
   });
 
+  it("records a decision for every candidate even when model ids are reused", () => {
+    const quality = candidate({
+      id: "finding_1",
+      reviewerRunId: "run:quality:0",
+      reviewer: "quality",
+      category: "correctness",
+      title: "Missing validation for moderation audit reason in route",
+      body:
+        "The admin approval route accepts the moderation audit reason without validating that the reason is non-empty and bounded.",
+      file: "src/routes/admin-routes.ts",
+      startLine: 20,
+      endLine: 20,
+      evidence: [
+        "The route writes moderation audit reason from request input.",
+        "No validation is visible before persistence."
+      ]
+    });
+    const testing = candidate({
+      id: "finding_1",
+      reviewerRunId: "run:test:0",
+      reviewer: "test",
+      category: "testing",
+      title: "Missing test for admin approval route authorization and reason validation",
+      body:
+        "Add negative authorization tests and invalid moderation reason tests for the admin approval route.",
+      file: "src/routes/admin-routes.ts",
+      startLine: 18,
+      endLine: 24,
+      evidence: [
+        "The changed admin approval route has no nearby regression test.",
+        "No negative authorization test covers non-admin approval attempts."
+      ],
+      suggestedTests:
+        "Assert non-admin users cannot approve articles and invalid moderation reasons are rejected."
+    });
+
+    const result = runDeterministicReferee([quality, testing]);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]).toEqual(
+      expect.objectContaining({
+        id: "finding_1",
+        category: "correctness",
+        suggestedTests:
+          "Assert non-admin users cannot approve articles and invalid moderation reasons are rejected."
+      })
+    );
+    expect(result.decision.decisions).toHaveLength(2);
+    expect(result.decision.decisions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          candidateId: "run:quality:0",
+          decision: "accepted"
+        }),
+        expect.objectContaining({
+          candidateId: "run:test:0",
+          decision: "merged",
+          reason: "Merged into primary finding as suggestedTests."
+        })
+      ])
+    );
+  });
+
+  it("keeps concrete candidates as summary-level findings when line location is imprecise", () => {
+    const summaryLevel = candidate({
+      id: "summary-level",
+      reviewer: "quality",
+      category: "correctness",
+      title: "Missing validation for moderation audit reason",
+      body:
+        "The route persists a moderation audit reason from request input without validating that the reason is present and bounded.",
+      file: "src/routes/admin-routes.ts",
+      evidence: [
+        "The changed route writes the audit reason.",
+        "No validation evidence appears in the diff."
+      ]
+    });
+    delete summaryLevel.startLine;
+    delete summaryLevel.endLine;
+
+    const result = runDeterministicReferee([summaryLevel]);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]).toEqual(
+      expect.objectContaining({
+        id: "summary-level",
+        file: "src/routes/admin-routes.ts",
+        category: "correctness"
+      })
+    );
+    expect(result.findings[0]?.startLine).toBeUndefined();
+    expect(result.decision.decisions[0]).toEqual(
+      expect.objectContaining({
+        candidateId: "summary-level",
+        decision: "accepted"
+      })
+    );
+  });
+
+  it("rejects webhook signature false positives on normal API routes", () => {
+    const falsePositive = candidate({
+      id: "webhook-false-positive",
+      reviewer: "security",
+      category: "security",
+      title: "Missing webhook signature verification in admin route",
+      body:
+        "The normal authenticated admin API route does not verify a webhook signature before approving articles.",
+      file: "src/routes/admin-routes.ts",
+      startLine: 1,
+      evidence: [
+        "The route is an admin API route.",
+        "No webhook payload or delivery signature is involved."
+      ]
+    });
+
+    const result = runDeterministicReferee([falsePositive]);
+
+    expect(result.findings).toHaveLength(0);
+    expect(result.decision.decisions[0]).toEqual(
+      expect.objectContaining({
+        candidateId: "webhook-false-positive",
+        decision: "rejected",
+        reason: "Rejected webhook signature false positive on a non-webhook API route."
+      })
+    );
+  });
+
+  it("rejects vague maintainability and model-test candidates", () => {
+    const maintainability = candidate({
+      id: "potential-status",
+      reviewer: "quality",
+      category: "maintainability",
+      title: "Potential inconsistency in article status management",
+      body:
+        "The model might have an inconsistent article status, but the finding does not point to a concrete broken behavior.",
+      file: "src/database/models/article.model.ts",
+      startLine: 36,
+      evidence: ["The article model contains status fields."]
+    });
+    const modelTest = candidate({
+      id: "model-test",
+      reviewer: "test",
+      category: "testing",
+      title: "No test coverage for ModerationAudit model",
+      body:
+        "The moderation audit model does not have direct model-level tests, but no concrete behavior or assertion is identified.",
+      file: "src/database/models/moderation-audit.model.ts",
+      startLine: 1,
+      evidence: ["No direct model test file is visible."]
+    });
+
+    const result = runDeterministicReferee([maintainability, modelTest]);
+
+    expect(result.findings).toHaveLength(0);
+    expect(result.decision.decisions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          candidateId: "potential-status",
+          decision: "rejected",
+          reason: "Rejected vague maintainability candidate without strong concrete evidence."
+        }),
+        expect.objectContaining({
+          candidateId: "model-test",
+          decision: "rejected",
+          reason: "Rejected vague model-level test coverage candidate without a concrete behavior gap."
+        })
+      ])
+    );
+  });
+
+  it("merges related reason-validation candidates into one correctness finding", () => {
+    const routeValidation = candidate({
+      id: "route-validation",
+      reviewer: "quality",
+      category: "correctness",
+      title: "Missing validation for moderation audit reason in route",
+      body:
+        "The admin route persists the moderation audit reason without checking that the reason is present and bounded.",
+      file: "src/routes/admin-routes.ts",
+      startLine: 20,
+      evidence: ["The route accepts moderation audit reason from request input."]
+    });
+    const modelValidation = candidate({
+      id: "model-validation",
+      reviewer: "security",
+      category: "security",
+      title: "Potential missing validation for moderation audit data",
+      body:
+        "The moderation audit model can receive an unvalidated reason from the admin approval route.",
+      file: "src/database/models/moderation-audit.model.ts",
+      startLine: 1,
+      evidence: ["The audit model stores moderation reason data."]
+    });
+
+    const result = runDeterministicReferee([modelValidation, routeValidation]);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]).toEqual(
+      expect.objectContaining({
+        id: "route-validation",
+        category: "correctness"
+      })
+    );
+    expect(result.decision.decisions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          candidateId: "route-validation",
+          decision: "accepted"
+        }),
+        expect.objectContaining({
+          candidateId: "model-validation",
+          decision: "merged",
+          mergedIntoId: "route-validation"
+        })
+      ])
+    );
+  });
+
   it("rejects vague low-score candidates even when they are schema-valid", () => {
     const vague = candidate({
       id: "vague",
@@ -177,14 +395,6 @@ describe("deterministic referee", () => {
       evidence: []
     });
 
-    const noLocation = candidate({
-      id: "no-location",
-      severity: "critical",
-      confidence: 0.99,
-      evidence: ["critical but not localized"]
-    });
-    delete noLocation.startLine;
-
     const suspicion = candidate({
       id: "suspicion",
       severity: "high",
@@ -193,7 +403,7 @@ describe("deterministic referee", () => {
       evidence: ["possible issue but unverified"]
     });
 
-    const result = runDeterministicReferee([noEvidence, noLocation, suspicion]);
+    const result = runDeterministicReferee([noEvidence, suspicion]);
 
     expect(result.findings).toHaveLength(0);
     expect(result.decision.decisions).toEqual(
@@ -202,11 +412,6 @@ describe("deterministic referee", () => {
           candidateId: "no-evidence",
           decision: "rejected",
           reason: "Evidence gate rejected candidate without an evidence chain."
-        }),
-        expect.objectContaining({
-          candidateId: "no-location",
-          decision: "rejected",
-          reason: "Evidence gate rejected candidate without changed-file line location."
         }),
         expect.objectContaining({
           candidateId: "suspicion",

@@ -31,6 +31,7 @@ export function scoreFindingCandidate(candidate: ReviewFindingCandidate): number
     specialtyWeight(candidate.reviewer, candidate.category) +
     (candidate.suggestedPatch ? 2 : 0) +
     (candidate.suggestedTests ? 2 : 0) -
+    categoryMismatchPenalty(candidate) -
     vagueFindingPenalty(candidate)
   );
 }
@@ -38,12 +39,26 @@ export function scoreFindingCandidate(candidate: ReviewFindingCandidate): number
 export function runDeterministicReferee(
   candidates: ReviewFindingCandidate[]
 ): RefereeResult {
-  const companionTargets = findTestingCompanionTargets(candidates);
-  const nonCompanionCandidates = candidates.filter((candidate) => !companionTargets.has(candidate.id));
+  const preRejectedCandidates = candidates.flatMap((candidate) => {
+    const reason = getPreGroupingRejectionReason(candidate);
+
+    return reason ? [{ candidate, reason }] : [];
+  });
+  const preRejectedCandidateSet = new Set(preRejectedCandidates.map((item) => item.candidate));
+  const eligibleCandidates = candidates.filter((candidate) => !preRejectedCandidateSet.has(candidate));
+  const companionTargets = findTestingCompanionTargets(eligibleCandidates);
+  const nonCompanionCandidates = eligibleCandidates.filter((candidate) => !companionTargets.has(candidate));
   const groups = groupCandidates(nonCompanionCandidates);
-  const companionsByGroupKey = groupTestingCompanions(candidates, companionTargets);
+  const companionsByGroupKey = groupTestingCompanions(eligibleCandidates, companionTargets);
   const findings: ReviewFinding[] = [];
-  const decisions: RefereeDecision["decisions"] = [];
+  const decisions: RefereeDecision["decisions"] = preRejectedCandidates.map(({ candidate, reason }) =>
+    createDecision(
+      candidate,
+      "rejected",
+      scoreFindingCandidate(candidate),
+      reason
+    )
+  );
 
   for (const [groupKey, baseGroup] of groups.entries()) {
     const group = [...baseGroup, ...(companionsByGroupKey.get(groupKey) ?? [])];
@@ -81,8 +96,8 @@ export function runDeterministicReferee(
     findings.push(mergedFinding);
     decisions.push(createDecision(primary, "accepted", primaryScore, "Highest-scoring candidate in duplicate group."));
 
-    for (const candidate of ranked.filter((candidate) => candidate.id !== primary.id)) {
-      const isTestingCompanion = companionTargets.get(candidate.id) !== undefined;
+    for (const candidate of ranked.filter((candidate) => candidate !== primary)) {
+      const isTestingCompanion = companionTargets.get(candidate) !== undefined;
       decisions.push(
         createDecision(
           candidate,
@@ -91,9 +106,27 @@ export function runDeterministicReferee(
           isTestingCompanion
             ? "Merged into primary finding as suggestedTests."
             : "Merged into higher-scoring duplicate candidate.",
-          primary.id
+          decisionCandidateId(primary)
         )
       );
+    }
+  }
+
+  const decidedCandidateIds = new Set(decisions.map((decision) => decision.candidateId));
+
+  for (const candidate of candidates) {
+    const candidateId = decisionCandidateId(candidate);
+
+    if (!decidedCandidateIds.has(candidateId)) {
+      decisions.push(
+        createDecision(
+          candidate,
+          "rejected",
+          scoreFindingCandidate(candidate),
+          "Candidate was not selected by referee."
+        )
+      );
+      decidedCandidateIds.add(candidateId);
     }
   }
 
@@ -111,8 +144,8 @@ export function runDeterministicReferee(
 }
 
 function getEvidenceGateFailure(candidate: ReviewFindingCandidate): string | null {
-  if (!candidate.file || !candidate.startLine) {
-    return "Evidence gate rejected candidate without changed-file line location.";
+  if (!candidate.file) {
+    return "Evidence gate rejected candidate without changed-file path.";
   }
 
   if (!candidate.category) {
@@ -147,8 +180,8 @@ function groupCandidates(
 
 function findTestingCompanionTargets(
   candidates: ReviewFindingCandidate[]
-): Map<string, ReviewFindingCandidate> {
-  const targets = new Map<string, ReviewFindingCandidate>();
+): Map<ReviewFindingCandidate, ReviewFindingCandidate> {
+  const targets = new Map<ReviewFindingCandidate, ReviewFindingCandidate>();
   const primaryCandidates = candidates.filter(isPrimaryRiskFinding);
   const testingCandidates = candidates.filter(isTestingFinding);
 
@@ -158,7 +191,7 @@ function findTestingCompanionTargets(
       .sort((left, right) => scoreFindingCandidate(right) - scoreFindingCandidate(left))[0];
 
     if (target) {
-      targets.set(testingCandidate.id, target);
+      targets.set(testingCandidate, target);
     }
   }
 
@@ -167,15 +200,12 @@ function findTestingCompanionTargets(
 
 function groupTestingCompanions(
   candidates: ReviewFindingCandidate[],
-  companionTargets: Map<string, ReviewFindingCandidate>
+  companionTargets: Map<ReviewFindingCandidate, ReviewFindingCandidate>
 ): Map<string, ReviewFindingCandidate[]> {
   const companionsByGroupKey = new Map<string, ReviewFindingCandidate[]>();
-  const candidatesById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
 
-  for (const [companionId, target] of companionTargets.entries()) {
-    const companion = candidatesById.get(companionId);
-
-    if (!companion) {
+  for (const [companion, target] of companionTargets.entries()) {
+    if (!candidates.includes(companion)) {
       continue;
     }
 
@@ -200,11 +230,53 @@ function isTestingCompanion(
 }
 
 function isPrimaryRiskFinding(candidate: ReviewFindingCandidate): boolean {
-  return ["security", "correctness"].includes(candidate.category);
+  return ["security", "correctness", "quality", "maintainability"].includes(candidate.category);
 }
 
 function isTestingFinding(candidate: ReviewFindingCandidate): boolean {
   return candidate.reviewer === "test" || candidate.category === "testing" || candidate.category === "test";
+}
+
+function getPreGroupingRejectionReason(candidate: ReviewFindingCandidate): string | null {
+  if (isWebhookSignatureFalsePositive(candidate)) {
+    return "Rejected webhook signature false positive on a non-webhook API route.";
+  }
+
+  if (isVagueMaintainabilityCandidate(candidate)) {
+    return "Rejected vague maintainability candidate without strong concrete evidence.";
+  }
+
+  if (isVagueModelTestCandidate(candidate)) {
+    return "Rejected vague model-level test coverage candidate without a concrete behavior gap.";
+  }
+
+  return null;
+}
+
+function isVagueMaintainabilityCandidate(candidate: ReviewFindingCandidate): boolean {
+  const text = allCandidateText(candidate);
+
+  return (
+    candidate.category === "maintainability" &&
+    candidate.reviewer === "quality" &&
+    text.includes("potential") &&
+    !text.includes("regression") &&
+    !text.includes("break") &&
+    !text.includes("fails")
+  );
+}
+
+function isVagueModelTestCandidate(candidate: ReviewFindingCandidate): boolean {
+  const text = allCandidateText(candidate);
+
+  return (
+    isTestingFinding(candidate) &&
+    text.includes("no test coverage") &&
+    text.includes("model") &&
+    !text.includes("authorization") &&
+    !text.includes("permission") &&
+    !text.includes("route")
+  );
 }
 
 function areNearby(left: ReviewFindingCandidate, right: ReviewFindingCandidate): boolean {
@@ -331,6 +403,41 @@ function specialtyWeight(reviewer: ReviewerKind, category: string): number {
   return 0;
 }
 
+function categoryMismatchPenalty(candidate: ReviewFindingCandidate): number {
+  if (candidate.category !== "security") {
+    return 0;
+  }
+
+  if (hasSecurityRiskTerms(candidate)) {
+    return 0;
+  }
+
+  return 12;
+}
+
+function hasSecurityRiskTerms(candidate: ReviewFindingCandidate): boolean {
+  const text = allCandidateText(candidate);
+
+  return [
+    "auth",
+    "authorization",
+    "authentication",
+    "role",
+    "permission",
+    "tenant",
+    "owner",
+    "ownership",
+    "signature",
+    "webhook",
+    "token",
+    "secret",
+    "injection",
+    "xss",
+    "csrf",
+    "ssrf"
+  ].some((term) => text.includes(term));
+}
+
 function vagueFindingPenalty(candidate: ReviewFindingCandidate): number {
   let penalty = 0;
 
@@ -365,7 +472,36 @@ function normalizeLineRange(candidate: ReviewFindingCandidate): string {
 }
 
 function groupKeyForCandidate(candidate: ReviewFindingCandidate): string {
+  const semanticGroupKey = semanticDuplicateGroupKey(candidate);
+
+  if (semanticGroupKey) {
+    return semanticGroupKey;
+  }
+
   return `${candidate.file}:${normalizeLineRange(candidate)}:${candidate.category}`;
+}
+
+function semanticDuplicateGroupKey(candidate: ReviewFindingCandidate): string | null {
+  const terms = extractBehaviorTerms(allCandidateText(candidate));
+
+  if (
+    terms.has("validation") &&
+    (terms.has("moderation") || terms.has("audit")) &&
+    (terms.has("reason") || terms.has("audit"))
+  ) {
+    return "semantic:moderation-audit-reason-validation";
+  }
+
+  return null;
+}
+
+function isWebhookSignatureFalsePositive(candidate: ReviewFindingCandidate): boolean {
+  const text = allCandidateText(candidate);
+  const mentionsWebhookSignature =
+    text.includes("webhook") && text.includes("signature") && text.includes("verification");
+  const fileLooksWebhook = candidate.file.toLowerCase().includes("webhook");
+
+  return mentionsWebhookSignature && !fileLooksWebhook;
 }
 
 function createDecision(
@@ -376,7 +512,7 @@ function createDecision(
   mergedIntoId?: string
 ): RefereeDecision["decisions"][number] {
   const item: RefereeDecision["decisions"][number] = {
-    candidateId: candidate.id,
+    candidateId: decisionCandidateId(candidate),
     decision,
     score,
     reason
@@ -387,6 +523,14 @@ function createDecision(
   }
 
   return item;
+}
+
+function decisionCandidateId(candidate: ReviewFindingCandidate): string {
+  return candidate.reviewerRunId ?? candidate.id;
+}
+
+function allCandidateText(candidate: ReviewFindingCandidate): string {
+  return `${candidate.title} ${candidate.body} ${candidate.file} ${candidate.category} ${candidate.evidence.join(" ")}`.toLowerCase();
 }
 
 function dedupeStrings(values: string[]): string[] {

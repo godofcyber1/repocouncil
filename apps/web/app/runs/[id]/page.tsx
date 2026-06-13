@@ -81,6 +81,7 @@ type ReviewFindingCandidate = {
   suggestedPatch?: string;
   suggestedTests?: string;
   reviewer: string;
+  reviewerRunId?: string;
 };
 
 type RefereeDecision = {
@@ -332,7 +333,9 @@ export default async function ReviewRunPage({ params, searchParams }: PageProps)
                   <span>{candidates.length} candidates</span>
                 </div>
                 {candidates.map((candidate) => {
-                  const decision = decisionsByCandidateId.get(candidate.id);
+                  const decision =
+                    decisionsByCandidateId.get(candidateDecisionId(candidate)) ??
+                    decisionsByCandidateId.get(candidate.id);
 
                   return (
                     <article className="candidateRow" key={`${reviewer}:${candidate.id}`}>
@@ -347,6 +350,7 @@ export default async function ReviewRunPage({ params, searchParams }: PageProps)
                             ? candidate.evidence.slice(0, 2).map((item) => <span key={item}>{item}</span>)
                             : <span>No evidence recorded</span>}
                         </div>
+                        {decision ? <p className="decisionReason">{decision.reason}</p> : null}
                       </div>
                       <span className={`decisionPill ${decision?.decision ?? "pending"}`}>
                         {decision?.decision ?? "pending"}
@@ -905,6 +909,10 @@ function isReviewFindingCandidate(value: unknown): value is ReviewFindingCandida
     Array.isArray(value.evidence) &&
     typeof value.reviewer === "string"
   );
+}
+
+function candidateDecisionId(candidate: ReviewFindingCandidate): string {
+  return candidate.reviewerRunId ?? candidate.id;
 }
 
 function isDecisionItem(value: unknown): value is RefereeDecision["decisions"][number] {

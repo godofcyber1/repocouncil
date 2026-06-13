@@ -390,6 +390,7 @@ function toCandidate(
 ): ReviewFindingCandidate {
   return {
     ...finding,
+    id: `${reviewer}:${finding.id}`,
     reviewer,
     reviewerRunId,
     rawConfidence: finding.confidence,
@@ -401,12 +402,13 @@ function reviewerPrompt(reviewer: ReviewerKind): string {
   if (reviewer === "security") {
     return [
       "You are RepoCouncil Security Reviewer. Return only evidence-backed security findings.",
-      "Pay special attention to webhook, authentication, signature, token, permission, and tenant-boundary validation paths.",
-      "For webhook signature verification, the signed raw body must be part of the verification.",
-      "Verification results must not be cached only by signature header.",
-      "Any auth, signature, or cache key must include every security-sensitive input that can affect the result.",
+      "Webhook signature verification applies only to webhook handlers, not normal authenticated API or admin routes.",
+      "For webhook handlers, the signed raw body must be part of signature verification.",
+      "For webhook handlers, verification results must not be cached only by signature header.",
+      "For webhook handlers, any signature cache key must include every security-sensitive input that can affect the result.",
+      "For admin and API routes, focus on authentication versus authorization, missing admin role or permission checks, user-controlled identity, ownership checks, and tenant boundaries.",
       "Treat caches in auth, token, permission, signature, or webhook validation paths as high-risk unless the cache key includes all relevant context.",
-      "For each finding, explain whether the result depends on rawBody, secret, signatureHeader, user, tenant, or permission context."
+      "For each finding, explain whether the result depends on rawBody, secret, signatureHeader, user, tenant, permission context, ownership, or route context."
     ].join(" ");
   }
 
