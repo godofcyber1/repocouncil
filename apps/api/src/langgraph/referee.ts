@@ -11,6 +11,17 @@ export type RefereeResult = {
   decision: RefereeDecision;
 };
 
+type NormalizedIssueType =
+  | "ownership_access_control"
+  | "request_controlled_identity"
+  | "input_validation"
+  | "missing_negative_test"
+  | "data_exposure"
+  | "audit_consistency"
+  | "authorization"
+  | "webhook_signature"
+  | "generic";
+
 const MIN_PUBLICATION_SCORE = 25;
 const DUPLICATE_PENALTY = 5;
 
@@ -236,6 +247,17 @@ function isTestingCompanion(
   testingCandidate: ReviewFindingCandidate,
   primaryCandidate: ReviewFindingCandidate
 ): boolean {
+  if (!areIssueTypesCompatible(normalizedIssueType(testingCandidate), normalizedIssueType(primaryCandidate))) {
+    return false;
+  }
+
+  if (
+    normalizedIssueType(testingCandidate) === "missing_negative_test" &&
+    hasSharedBehaviorTerms(testingCandidate, primaryCandidate)
+  ) {
+    return true;
+  }
+
   return (
     testingCandidate.file === primaryCandidate.file &&
     areNearby(testingCandidate, primaryCandidate) &&
@@ -353,7 +375,7 @@ function mergeGroup(
 ): ReviewFinding {
   const evidence = dedupeStrings(group.flatMap((candidate) => candidate.evidence));
   const patchCandidate = group.find((candidate) => candidate.suggestedPatch);
-  const suggestedTests = mergeSuggestedTests(group);
+  const suggestedTests = mergeSuggestedTests(primary, group);
   const finding: ReviewFinding = {
     id: primary.id,
     title: primary.title,
@@ -384,16 +406,24 @@ function mergeGroup(
   return finding;
 }
 
-function mergeSuggestedTests(group: ReviewFindingCandidate[]): string | undefined {
-  const suggestions = dedupeStrings(
+function mergeSuggestedTests(
+  primary: ReviewFindingCandidate,
+  group: ReviewFindingCandidate[]
+): string | undefined {
+  const primaryIssueType = normalizedIssueType(primary);
+  const suggestions = dedupeTestSuggestions(
     group.flatMap((candidate) => {
+      if (!areIssueTypesCompatible(primaryIssueType, normalizedIssueType(candidate))) {
+        return [];
+      }
+
       if (candidate.suggestedTests) {
-        return [candidate.suggestedTests];
+        return splitSuggestedTests(candidate.suggestedTests);
       }
 
       return isTestingFinding(candidate) ? [candidate.body] : [];
     })
-  );
+  ).slice(0, 3);
 
   return suggestions.length > 0 ? suggestions.join("\n\n") : undefined;
 }
@@ -486,7 +516,7 @@ function normalizeLineRange(candidate: ReviewFindingCandidate): string {
 }
 
 function groupKeyForCandidate(candidate: ReviewFindingCandidate): string {
-  return `${candidate.file}:${normalizeLineRange(candidate)}:${candidate.category}`;
+  return `${normalizedIssueType(candidate)}:${candidate.file}:${normalizeLineRange(candidate)}:${candidate.category}`;
 }
 
 function findSemanticDuplicateGroupKey(
@@ -506,6 +536,13 @@ function areSemanticDuplicates(
   left: ReviewFindingCandidate,
   right: ReviewFindingCandidate
 ): boolean {
+  const leftIssueType = normalizedIssueType(left);
+  const rightIssueType = normalizedIssueType(right);
+
+  if (!areIssueTypesCompatible(leftIssueType, rightIssueType)) {
+    return false;
+  }
+
   const sharedFamilies = intersectSets(semanticFamilies(left), semanticFamilies(right));
 
   if (!canMergeAcrossLocations(left, right, sharedFamilies)) {
@@ -528,7 +565,14 @@ function canMergeAcrossLocations(
   right: ReviewFindingCandidate,
   sharedFamilies: Set<string>
 ): boolean {
-  return left.file === right.file || left.category === right.category || sharedFamilies.has("validation");
+  const leftIssueType = normalizedIssueType(left);
+  const rightIssueType = normalizedIssueType(right);
+
+  return (
+    left.file === right.file ||
+    left.category === right.category ||
+    (leftIssueType === "input_validation" && rightIssueType === "input_validation" && sharedFamilies.has("validation"))
+  );
 }
 
 function countSharedTerms(left: Set<string>, right: Set<string>): number {
@@ -560,6 +604,205 @@ function semanticFamilies(candidate: ReviewFindingCandidate): Set<string> {
   }
 
   return families;
+}
+
+function normalizedIssueType(candidate: ReviewFindingCandidate): NormalizedIssueType {
+  const text = allCandidateText(candidate);
+
+  if (isMissingNegativeTest(candidate, text)) {
+    return "missing_negative_test";
+  }
+
+  if (text.includes("webhook") && text.includes("signature")) {
+    return "webhook_signature";
+  }
+
+  if (hasRequestControlledIdentityIssue(text)) {
+    return "request_controlled_identity";
+  }
+
+  if (hasInputValidationIssue(text)) {
+    return "input_validation";
+  }
+
+  if (hasOwnershipAccessControlIssue(text)) {
+    return "ownership_access_control";
+  }
+
+  if (hasDataExposureIssue(text)) {
+    return "data_exposure";
+  }
+
+  if (hasAuditConsistencyIssue(text)) {
+    return "audit_consistency";
+  }
+
+  if (hasAuthorizationIssue(text)) {
+    return "authorization";
+  }
+
+  return "generic";
+}
+
+function areIssueTypesCompatible(
+  left: NormalizedIssueType,
+  right: NormalizedIssueType
+): boolean {
+  if (left === right) {
+    return true;
+  }
+
+  const pair = new Set([left, right]);
+
+  return (
+    (pair.has("missing_negative_test") &&
+      (pair.has("ownership_access_control") ||
+        pair.has("request_controlled_identity") ||
+        pair.has("input_validation") ||
+        pair.has("authorization"))) ||
+    (pair.has("ownership_access_control") && pair.has("request_controlled_identity"))
+  );
+}
+
+function isMissingNegativeTest(candidate: ReviewFindingCandidate, text: string): boolean {
+  return (
+    isTestingFinding(candidate) &&
+    (text.includes("negative") ||
+      text.includes("cross-user") ||
+      text.includes("user a") ||
+      text.includes("403") ||
+      text.includes("401") ||
+      text.includes("unauthorized") ||
+      text.includes("forbidden"))
+  );
+}
+
+function hasRequestControlledIdentityIssue(text: string): boolean {
+  return (
+    /req\.(?:params|body|query)\.(?:userid|user_id|authorid|author_id|ownerid|owner_id)/i.test(text) ||
+    text.includes("request-controlled userid") ||
+    text.includes("request controlled userid") ||
+    text.includes("params userid") ||
+    text.includes("body userid") ||
+    text.includes("query userid")
+  );
+}
+
+function hasOwnershipAccessControlIssue(text: string): boolean {
+  return (
+    (text.includes("draft") ||
+      text.includes("private") ||
+      text.includes("visibility") ||
+      text.includes("owner") ||
+      text.includes("author")) &&
+    (text.includes("ownership") ||
+      text.includes("access") ||
+      text.includes("authorize") ||
+      text.includes("authorization") ||
+      text.includes("permission") ||
+      text.includes("403"))
+  );
+}
+
+function hasInputValidationIssue(text: string): boolean {
+  return (
+    (text.includes("validation") ||
+      text.includes("validate") ||
+      text.includes("invalid") ||
+      text.includes("required") ||
+      text.includes("input") ||
+      text.includes("field") ||
+      text.includes("title") ||
+      text.includes("content") ||
+      text.includes("category") ||
+      text.includes("visibility")) &&
+    !hasRequestControlledIdentityIssue(text) &&
+    !text.includes("ownership check")
+  );
+}
+
+function hasDataExposureIssue(text: string): boolean {
+  return text.includes("exposure") || text.includes("leak") || text.includes("sensitive") || text.includes("private data");
+}
+
+function hasAuditConsistencyIssue(text: string): boolean {
+  return (
+    text.includes("audit") &&
+    (text.includes("transaction") ||
+      text.includes("atomic") ||
+      text.includes("consistency") ||
+      text.includes("rollback") ||
+      text.includes("partial"))
+  );
+}
+
+function hasAuthorizationIssue(text: string): boolean {
+  return (
+    text.includes("authorization") ||
+    text.includes("permission") ||
+    text.includes("role") ||
+    text.includes("unauthorized") ||
+    text.includes("forbidden")
+  );
+}
+
+function splitSuggestedTests(value: string): string[] {
+  return value
+    .split(/\n\s*\n|\n(?=\s*(?:[-*]|\d+[.)])\s+)/)
+    .map((item) => item.replace(/^\s*(?:[-*]|\d+[.)])\s+/, "").trim())
+    .filter(Boolean);
+}
+
+function dedupeTestSuggestions(values: string[]): string[] {
+  const seen = new Set<string>();
+  const deduped: string[] = [];
+
+  for (const value of values) {
+    const key = normalizeTestSuggestion(value);
+
+    if (!seen.has(key)) {
+      seen.add(key);
+      deduped.push(value);
+    }
+  }
+
+  return deduped;
+}
+
+function normalizeTestSuggestion(value: string): string {
+  const lower = value.toLowerCase();
+
+  if (
+    (lower.includes("private") || lower.includes("owned") || lower.includes("resource")) &&
+    lower.includes("cannot access") &&
+    (lower.includes("user a") ||
+      lower.includes("another user") ||
+      lower.includes("other user") ||
+      lower.includes("non-owner") ||
+      lower.includes("non owner"))
+  ) {
+    return "cross-user-resource-denied";
+  }
+
+  if (lower.includes("unauthenticated") || lower.includes("without authentication")) {
+    return "unauthenticated-denied";
+  }
+
+  if (
+    lower.includes("owner") &&
+    lower.includes("access") &&
+    (lower.includes("own draft") || lower.includes("own private resource") || lower.includes("own resource"))
+  ) {
+    return "owner-access-own-resource";
+  }
+
+  return lower
+    .toLowerCase()
+    .replace(/\b(user a|another user|non-owner|non owner|other user)\b/g, "cross-user")
+    .replace(/\b(user b|owner)\b/g, "owner")
+    .replace(/\b(unauthorized|forbidden|403)\b/g, "denied")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 function hasAuthorizationFamily(terms: Set<string>): boolean {

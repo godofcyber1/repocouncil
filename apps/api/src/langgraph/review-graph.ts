@@ -49,6 +49,7 @@ export type RiskHint = {
   kind:
     | "admin_route"
     | "request_controlled_identity"
+    | "ownership_access_control"
     | "audit_consistency"
     | "input_validation"
     | "security_boundary_tests";
@@ -355,10 +356,26 @@ function generateRiskHints(context: ReviewGraphContext): RiskHint[] {
         kind: "request_controlled_identity",
         file: file.path,
         summary:
-          "Privileged flow appears to read identity-like fields from request body/query instead of trusted auth context.",
+          "Ownership or authorization logic appears to use a request-controlled user identity. Verify that resource ownership is checked against authenticated session/JWT identity, not params/body/query.",
         checklist: [
-          "Identity for privileged actions must come from authenticated session or JWT.",
-          "Do not trust userId, moderatorId, role, or permission from request body/query."
+          "Compare protected resources against trusted identity such as req.user.id, req.auth.userId, decodedToken.id, or session.user.id.",
+          "Do not trust userId, ownerId, authorId, moderatorId, role, or permission from request body/query/params as the acting user.",
+          "Check whether request-controlled identity is used to fetch, update, or authorize private resources."
+        ]
+      });
+    }
+
+    if (hasOwnershipAccessControlRisk(file, text)) {
+      hints.push({
+        id: `risk:${file.path}:ownership-access-control`,
+        kind: "ownership_access_control",
+        file: file.path,
+        summary:
+          "Changed code touches private, draft, or user-owned resources. Verify ownership checks use authenticated identity, not request-controlled identity.",
+        checklist: [
+          "Verify user A cannot access user B's private or draft resource.",
+          "Verify post.author or ownerId is compared with authenticated req.user.id.",
+          "Verify request params, body, or query values are not trusted as the current user identity."
         ]
       });
     }
@@ -427,9 +444,38 @@ function isAdminRouteChange(file: ReviewGraphFile, text: string): boolean {
 }
 
 function usesRequestControlledIdentity(text: string): boolean {
-  return /\breq\.(?:body|query|params)\.(?:userId|moderatorId|adminId|actorId|ownerId|tenantId|role|permission|permissions)\b/i.test(
+  return hasRequestControlledIdentitySource(text) && hasOwnershipOrAuthorizationContext(text);
+}
+
+function hasRequestControlledIdentitySource(text: string): boolean {
+  return /\breq\.(?:body|query|params)\.(?:userId|user_id|authorId|author_id|ownerId|owner_id|moderatorId|adminId|actorId|tenantId|role|permission|permissions)\b/i.test(
     text
   );
+}
+
+function hasTrustedIdentitySource(text: string): boolean {
+  return /\b(?:req\.user\.(?:id|_id)|req\.auth\.userId|req\.payload\.id|decodedToken\.id|session\.user\.id)\b/i.test(
+    text
+  );
+}
+
+function hasOwnershipOrAuthorizationContext(text: string): boolean {
+  return /\b(author|owner|ownerid|userid|user_id|draft|private|visibility|isprivate|permission|authorize|authorization|access|admin|approve|approval|moderate|moderation|privilege)\b/i.test(
+    text
+  );
+}
+
+function hasOwnershipAccessControlRisk(file: ReviewGraphFile, text: string): boolean {
+  const path = file.path.toLowerCase();
+  const routeLike = path.includes("route") || path.includes("controller") || path.includes("api") || path.includes("service");
+  const privateResource =
+    /\b(draft|private|visibility|isprivate|is_private|getdraft|updatedraft|private post|privatepost)\b/i.test(text);
+  const ownerFields = /\b(post\.(?:author|user|ownerId|owner_id)|authorId|ownerId|owner_id|userId|user_id|owner|author)\b/i.test(text);
+  const authenticatedRoute = /\b(authentication\.required|requireAuth|authenticated|authRequired|req\.user|session\.user|req\.auth|jwt)\b/i.test(
+    text
+  ) || hasTrustedIdentitySource(text);
+
+  return routeLike && (privateResource || ownerFields) && (authenticatedRoute || hasRequestControlledIdentitySource(text));
 }
 
 function hasAuditConsistencyRisk(text: string): boolean {
@@ -606,6 +652,9 @@ function reviewerPrompt(reviewer: ReviewerKind): string {
       "For webhook handlers, verification results must not be cached only by signature header.",
       "For webhook handlers, any signature cache key must include every security-sensitive input that can affect the result.",
       "For admin and API routes, focus on authentication versus authorization, missing admin role or permission checks, user-controlled identity, ownership checks, and tenant boundaries.",
+      "For ownership/access-control findings, explicitly state the protected resource, resource owner source, acting user identity source, whether that identity source is trusted or request-controlled, and a concrete exploit scenario.",
+      "Prefer precise ownership titles such as: Draft ownership check uses request-controlled userId instead of authenticated user identity.",
+      "Avoid vague claims like 'does not validate permissions' unless you identify which trusted identity should be compared against which owner field.",
       "When request body, query, or params fields are persisted or control privileged behavior, check for presence, type, bounds, and allowed-value validation.",
       "Treat caches in auth, token, permission, signature, or webhook validation paths as high-risk unless the cache key includes all relevant context.",
       "For each finding, explain whether the result depends on rawBody, secret, signatureHeader, user, tenant, permission context, ownership, or route context."

@@ -61,9 +61,30 @@ const mediumAdminRouteInput = {
     {
       path: "src/routes/admin-routes.test.ts",
       role: "test" as const,
-      summary: "Positive admin approval test only."
+      summary: "Positive privileged action test only."
     }
   ],
+  toolSignals: []
+};
+
+const ownershipAccessInput = {
+  ...input,
+  changedFiles: [
+    {
+      path: "src/controllers/resource-controller.ts",
+      patch: [
+        "@@ -1,6 +1,18 @@",
+        "+router.get('/users/:userId/private-resources/:id', authentication.required, async (req, res) => {",
+        "+  const resource = await Resource.findOne({ _id: req.params.id, visibility: 'private' });",
+        "+  if (!resource || String(resource.ownerId) !== req.params.userId) {",
+        "+    return res.status(404).json({ error: 'not found' });",
+        "+  }",
+        "+  res.json(resource);",
+        "+});"
+      ].join("\n")
+    }
+  ],
+  repositoryFiles: [],
   toolSignals: []
 };
 
@@ -176,6 +197,9 @@ describe("runReviewGraph", () => {
     expect(securityPrompt).toEqual(
       expect.stringContaining("For admin and API routes, focus on authentication versus authorization")
     );
+    expect(securityPrompt).toEqual(expect.stringContaining("protected resource"));
+    expect(securityPrompt).toEqual(expect.stringContaining("acting user identity source"));
+    expect(securityPrompt).toEqual(expect.stringContaining("trusted or request-controlled"));
   });
 
   it("generates medium admin route risk hints before reviewer fan-out", async () => {
@@ -216,6 +240,33 @@ describe("runReviewGraph", () => {
 
     expect(userMessage).toEqual(expect.stringContaining('"riskHints"'));
     expect(userMessage).toEqual(expect.stringContaining("security_boundary_tests"));
+  });
+
+  it("generates ownership and request-controlled identity hints for private resources", async () => {
+    const result = await runReviewGraph(
+      {
+        ...ownershipAccessInput,
+        mode: "council"
+      },
+      {
+        modelProvider: new MockModelProvider()
+      }
+    );
+
+    expect(result.context.riskHints).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "request_controlled_identity",
+          summary: expect.stringContaining("request-controlled user identity")
+        }),
+        expect.objectContaining({
+          kind: "ownership_access_control",
+          checklist: expect.arrayContaining([
+            expect.stringContaining("user A cannot access user B")
+          ])
+        })
+      ])
+    );
   });
 });
 

@@ -153,14 +153,14 @@ describe("deterministic referee", () => {
       reviewerRunId: "run:quality:0",
       reviewer: "quality",
       category: "correctness",
-      title: "Missing validation for moderation audit reason in route",
+      title: "Missing validation for required request field",
       body:
-        "The admin approval route accepts the moderation audit reason without validating that the reason is non-empty and bounded.",
-      file: "src/routes/admin-routes.ts",
+        "The route accepts a required request field without validating that the value is non-empty and bounded.",
+      file: "src/routes/resource-routes.ts",
       startLine: 20,
       endLine: 20,
       evidence: [
-        "The route writes moderation audit reason from request input.",
+        "The route writes a request body field before validation.",
         "No validation is visible before persistence."
       ]
     });
@@ -169,18 +169,18 @@ describe("deterministic referee", () => {
       reviewerRunId: "run:test:0",
       reviewer: "test",
       category: "testing",
-      title: "Missing test for admin approval route authorization and reason validation",
+      title: "Missing test for required field validation",
       body:
-        "Add negative authorization tests and invalid moderation reason tests for the admin approval route.",
-      file: "src/routes/admin-routes.ts",
+        "Add negative tests for missing and invalid required request field values.",
+      file: "src/routes/resource-routes.ts",
       startLine: 18,
       endLine: 24,
       evidence: [
-        "The changed admin approval route has no nearby regression test.",
-        "No negative authorization test covers non-admin approval attempts."
+        "The changed route has no nearby regression test.",
+        "No negative validation test covers missing request field values."
       ],
       suggestedTests:
-        "Assert non-admin users cannot approve articles and invalid moderation reasons are rejected."
+        "Assert missing and invalid required request field values are rejected."
     });
 
     const result = runDeterministicReferee([quality, testing]);
@@ -191,7 +191,7 @@ describe("deterministic referee", () => {
         id: "finding_1",
         category: "correctness",
         suggestedTests:
-          "Assert non-admin users cannot approve articles and invalid moderation reasons are rejected."
+          "Assert missing and invalid required request field values are rejected."
       })
     );
     expect(result.decision.decisions).toHaveLength(2);
@@ -215,12 +215,12 @@ describe("deterministic referee", () => {
       id: "summary-level",
       reviewer: "quality",
       category: "correctness",
-      title: "Missing validation for moderation audit reason",
+      title: "Missing validation for required request field",
       body:
-        "The route persists a moderation audit reason from request input without validating that the reason is present and bounded.",
-      file: "src/routes/admin-routes.ts",
+        "The route persists a required request field without validating that the value is present and bounded.",
+      file: "src/routes/resource-routes.ts",
       evidence: [
-        "The changed route writes the audit reason.",
+        "The changed route writes the request field.",
         "No validation evidence appears in the diff."
       ]
     });
@@ -233,7 +233,7 @@ describe("deterministic referee", () => {
     expect(result.findings[0]).toEqual(
       expect.objectContaining({
         id: "summary-level",
-        file: "src/routes/admin-routes.ts",
+        file: "src/routes/resource-routes.ts",
         category: "correctness"
       })
     );
@@ -325,10 +325,10 @@ describe("deterministic referee", () => {
       id: "model-test",
       reviewer: "test",
       category: "testing",
-      title: "No test coverage for ModerationAudit model",
+      title: "No test coverage for auxiliary persistence model",
       body:
-        "The moderation audit model does not have direct model-level tests, but no concrete behavior or assertion is identified.",
-      file: "src/database/models/moderation-audit.model.ts",
+        "The auxiliary persistence model does not have direct model-level tests, but no concrete behavior or assertion is identified.",
+      file: "src/models/auxiliary-record.model.ts",
       startLine: 1,
       evidence: ["No direct model test file is visible."]
     });
@@ -352,28 +352,28 @@ describe("deterministic referee", () => {
     );
   });
 
-  it("merges related reason-validation candidates into one correctness finding", () => {
+  it("merges semantically equivalent validation candidates into one correctness finding", () => {
     const routeValidation = candidate({
       id: "route-validation",
       reviewer: "quality",
       category: "correctness",
-      title: "Missing validation for moderation audit reason in route",
+      title: "Missing validation for required request field in route",
       body:
-        "The admin route persists the moderation audit reason without checking that the reason is present and bounded.",
-      file: "src/routes/admin-routes.ts",
+        "The route persists a required request field without checking that the value is present and bounded.",
+      file: "src/routes/resource-routes.ts",
       startLine: 20,
-      evidence: ["The route accepts moderation audit reason from request input."]
+      evidence: ["The route accepts a required field from request input."]
     });
     const modelValidation = candidate({
       id: "model-validation",
       reviewer: "security",
       category: "security",
-      title: "Potential missing validation for moderation audit data",
+      title: "Potential missing validation for persisted request data",
       body:
-        "The moderation audit model can receive an unvalidated reason from the admin approval route.",
-      file: "src/database/models/moderation-audit.model.ts",
+        "The persistence layer can receive an unvalidated required field from the route.",
+      file: "src/models/resource.model.ts",
       startLine: 1,
-      evidence: ["The audit model stores moderation reason data."]
+      evidence: ["The model stores the request field."]
     });
 
     const result = runDeterministicReferee([modelValidation, routeValidation]);
@@ -395,6 +395,134 @@ describe("deterministic referee", () => {
           candidateId: "model-validation",
           decision: "merged",
           mergedIntoId: "route-validation"
+        })
+      ])
+    );
+  });
+
+  it("does not merge incompatible issue types", () => {
+    const ownership = candidate({
+      id: "ownership-control",
+      reviewer: "security",
+      title: "Ownership check uses request-controlled userId instead of authenticated identity",
+      body:
+        "The endpoint compares resource.ownerId with req.params.userId instead of req.user.id, so user A can change the params userId to access user B's private resource.",
+      file: "src/routes/resource-routes.ts",
+      startLine: 12,
+      category: "security",
+      severity: "high",
+      evidence: [
+        "Protected resource: private resource.",
+        "Resource owner source: resource.ownerId.",
+        "Acting user identity source: req.params.userId is request-controlled."
+      ],
+      suggestedTests:
+        "Assert user A cannot access user B's private resource and receives 403."
+    });
+    const validation = candidate({
+      id: "input-validation",
+      reviewer: "quality",
+      title: "Missing validation for update payload field",
+      body:
+        "The update route accepts status, title, and category values from the request body without validating allowed values.",
+      file: "src/routes/resource-routes.ts",
+      startLine: 16,
+      category: "correctness",
+      severity: "medium",
+      evidence: [
+        "status is read from req.body.status.",
+        "No enum or schema validation is visible."
+      ],
+      suggestedTests:
+        "Assert invalid status values are rejected."
+    });
+
+    const result = runDeterministicReferee([ownership, validation]);
+
+    expect(result.findings).toHaveLength(2);
+    expect(result.decision.decisions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          candidateId: "ownership-control",
+          decision: "accepted"
+        }),
+        expect.objectContaining({
+          candidateId: "input-validation",
+          decision: "accepted"
+        })
+      ])
+    );
+  });
+
+  it("merges compatible negative tests into access-control findings and caps suggested tests", () => {
+    const ownership = candidate({
+      id: "ownership-control",
+      reviewer: "security",
+      title: "Ownership check uses request-controlled userId instead of authenticated identity",
+      body:
+        "The endpoint compares resource.ownerId with req.params.userId instead of req.user.id, allowing cross-user private resource access.",
+      file: "src/routes/resource-routes.ts",
+      startLine: 12,
+      category: "security",
+      severity: "high",
+      evidence: [
+        "Protected resource: private resource.",
+        "Resource owner source: resource.ownerId.",
+        "Acting user identity source: req.params.userId is request-controlled."
+      ],
+      suggestedTests: [
+        "Assert user A cannot access user B's private resource and receives 403.",
+        "Assert another user cannot access the owner's private resource and receives forbidden.",
+        "Assert unauthenticated requests receive 401.",
+        "Assert the owner can access their own private resource."
+      ].join("\n\n")
+    });
+    const testing = candidate({
+      id: "cross-user-test",
+      reviewer: "test",
+      title: "Missing cross-user negative test for ownership access control",
+      body:
+        "Add a negative test where user A attempts to access user B's private resource and receives 403.",
+      file: "src/routes/resource-routes.ts",
+      startLine: 13,
+      category: "testing",
+      severity: "medium",
+      evidence: ["No cross-user access test is visible."],
+      suggestedTests:
+        "Assert user A cannot access user B's private resource and receives 403."
+    });
+    const validationTest = candidate({
+      id: "invalid-status-test",
+      reviewer: "test",
+      title: "Missing invalid status input tests",
+      body:
+        "Add validation tests for invalid status, title, and category values.",
+      file: "src/routes/resource-routes.ts",
+      startLine: 14,
+      category: "testing",
+      severity: "medium",
+      evidence: ["No invalid input tests are visible."],
+      suggestedTests:
+        "Assert invalid status values are rejected."
+    });
+
+    const result = runDeterministicReferee([ownership, testing, validationTest]);
+
+    expect(result.findings).toHaveLength(2);
+    const ownershipFinding = result.findings.find((finding) => finding.id === "ownership-control");
+    const suggestedTests = ownershipFinding?.suggestedTests?.split("\n\n") ?? [];
+
+    expect(suggestedTests).toHaveLength(3);
+    expect(ownershipFinding?.suggestedTests).toContain("user A cannot access user B's private resource");
+    expect(ownershipFinding?.suggestedTests).toContain("unauthenticated requests receive 401");
+    expect(ownershipFinding?.suggestedTests).toContain("owner can access their own private resource");
+    expect(ownershipFinding?.suggestedTests).not.toContain("invalid status");
+    expect(result.decision.decisions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          candidateId: "cross-user-test",
+          decision: "merged",
+          reason: "Merged into primary finding as suggestedTests."
         })
       ])
     );
