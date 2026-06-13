@@ -41,6 +41,20 @@ export type ReviewGraphContext = {
   relatedFiles: RepositoryFileContext[];
   toolSignals: ToolSignal[];
   reviewFocus: string[];
+  riskHints: RiskHint[];
+};
+
+export type RiskHint = {
+  id: string;
+  kind:
+    | "admin_route"
+    | "request_controlled_identity"
+    | "audit_consistency"
+    | "input_validation"
+    | "security_boundary_tests";
+  file: string;
+  summary: string;
+  checklist: string[];
 };
 
 export type ReviewGraphResult = {
@@ -145,14 +159,16 @@ function createReviewGraph(
   const graph = new StateGraph(ReviewGraphState)
     .addNode("planner", createPlannerNode(modelProvider, models.planner))
     .addNode("contextBuilder", createContextBuilderNode())
+    .addNode("issueDetectionPrepass", createIssueDetectionPrepassNode())
     .addNode("referee", createRefereeNode())
     .addEdge(START, "planner")
-    .addEdge("planner", "contextBuilder");
+    .addEdge("planner", "contextBuilder")
+    .addEdge("contextBuilder", "issueDetectionPrepass");
 
   if (mode === "baseline") {
     return graph
       .addNode("genericReviewer", createReviewerNode("generic", modelProvider, models.reviewer))
-      .addEdge("contextBuilder", "genericReviewer")
+      .addEdge("issueDetectionPrepass", "genericReviewer")
       .addEdge("genericReviewer", "referee")
       .addEdge("referee", END)
     .compile();
@@ -162,9 +178,9 @@ function createReviewGraph(
     .addNode("securityReviewer", createReviewerNode("security", modelProvider, models.reviewer))
     .addNode("qualityReviewer", createReviewerNode("quality", modelProvider, models.reviewer))
     .addNode("testReviewer", createReviewerNode("test", modelProvider, models.reviewer))
-    .addEdge("contextBuilder", "securityReviewer")
-    .addEdge("contextBuilder", "qualityReviewer")
-    .addEdge("contextBuilder", "testReviewer")
+    .addEdge("issueDetectionPrepass", "securityReviewer")
+    .addEdge("issueDetectionPrepass", "qualityReviewer")
+    .addEdge("issueDetectionPrepass", "testReviewer")
     .addEdge(["securityReviewer", "qualityReviewer", "testReviewer"], "referee")
     .addEdge("referee", END)
     .compile();
@@ -226,7 +242,8 @@ function createContextBuilderNode() {
         (file) => file.role !== "guideline" && isRelatedRepositoryFile(file, changedPaths)
       ),
       toolSignals: toolSignals.filter((signal) => isRelatedToolSignal(signal, changedPaths)),
-      reviewFocus: buildReviewFocus(changedFiles, repositoryFiles, toolSignals)
+      reviewFocus: buildReviewFocus(changedFiles, repositoryFiles, toolSignals),
+      riskHints: []
     };
 
     return {
@@ -235,6 +252,30 @@ function createContextBuilderNode() {
         {
           node: "context_builder",
           message: `Prepared context for ${context.changedFiles.length} changed file(s).`
+        }
+      ]
+    };
+  };
+}
+
+function createIssueDetectionPrepassNode() {
+  return async (state: ReviewGraphStateType) => {
+    if (!state.context) {
+      throw new Error("Issue detection prepass requires context.");
+    }
+
+    const riskHints = generateRiskHints(state.context);
+    const context: ReviewGraphContext = {
+      ...state.context,
+      riskHints
+    };
+
+    return {
+      context,
+      trace: [
+        {
+          node: "issue_detection_prepass",
+          message: `Generated ${riskHints.length} risk hint(s).`
         }
       ]
     };
@@ -284,6 +325,163 @@ function buildReviewFocus(
     ...relatedTests.map((file) => `test:${file}`),
     ...relatedSignals
   ];
+}
+
+function generateRiskHints(context: ReviewGraphContext): RiskHint[] {
+  const hints: RiskHint[] = [];
+  const hasNegativeAuthorizationTest = contextHasNegativeAuthorizationTest(context);
+
+  for (const file of context.changedFiles) {
+    const text = changedFileSearchText(file);
+
+    if (isAdminRouteChange(file, text)) {
+      hints.push({
+        id: `risk:${file.path}:admin-route`,
+        kind: "admin_route",
+        file: file.path,
+        summary:
+          "Changed privileged/admin route or action. Review authentication, authorization, role checks, and negative authorization tests.",
+        checklist: [
+          "Check authentication versus authorization.",
+          "Check explicit admin, role, or permission enforcement.",
+          "Check non-admin negative tests."
+        ]
+      });
+    }
+
+    if (usesRequestControlledIdentity(text)) {
+      hints.push({
+        id: `risk:${file.path}:request-controlled-identity`,
+        kind: "request_controlled_identity",
+        file: file.path,
+        summary:
+          "Privileged flow appears to read identity-like fields from request body/query instead of trusted auth context.",
+        checklist: [
+          "Identity for privileged actions must come from authenticated session or JWT.",
+          "Do not trust userId, moderatorId, role, or permission from request body/query."
+        ]
+      });
+    }
+
+    if (hasAuditConsistencyRisk(text)) {
+      hints.push({
+        id: `risk:${file.path}:audit-consistency`,
+        kind: "audit_consistency",
+        file: file.path,
+        summary:
+          "Changed flow appears to update application state and write audit/moderation log data in the same path.",
+        checklist: [
+          "Check transaction or session usage.",
+          "Check partial failure consistency between state update and audit log write."
+        ]
+      });
+    }
+
+    if (hasInputValidationRisk(text)) {
+      hints.push({
+        id: `risk:${file.path}:input-validation`,
+        kind: "input_validation",
+        file: file.path,
+        summary:
+          "Changed flow appears to persist request-controlled input without visible validation.",
+        checklist: [
+          "Validate required request fields before persistence.",
+          "Check type, presence, length, bounds, and allowed values.",
+          "Pay special attention to audit, moderation, status, and privileged action inputs."
+        ]
+      });
+    }
+
+    if (isAdminRouteChange(file, text) && !hasNegativeAuthorizationTest) {
+      hints.push({
+        id: `risk:${file.path}:security-boundary-tests`,
+        kind: "security_boundary_tests",
+        file: file.path,
+        summary:
+          "Admin or security-sensitive route changed without visible non-admin/403/forbidden/unauthorized regression coverage.",
+        checklist: [
+          "Require negative authorization tests.",
+          "Cover non-admin, forbidden, or unauthorized access to privileged actions."
+        ]
+      });
+    }
+  }
+
+  return dedupeRiskHints(hints);
+}
+
+function changedFileSearchText(file: ReviewGraphFile): string {
+  return `${file.path}\n${file.patch ?? ""}`.toLowerCase();
+}
+
+function isAdminRouteChange(file: ReviewGraphFile, text: string): boolean {
+  const path = file.path.toLowerCase();
+  const routeLike = path.includes("route") || path.includes("controller") || path.includes("api");
+
+  return (
+    routeLike &&
+    /\b(admin|approve|approval|moderate|moderation|role|permission|privilege|forbidden|authorize|authorization)\b/.test(
+      text
+    )
+  );
+}
+
+function usesRequestControlledIdentity(text: string): boolean {
+  return /\breq\.(?:body|query|params)\.(?:userId|moderatorId|adminId|actorId|ownerId|tenantId|role|permission|permissions)\b/i.test(
+    text
+  );
+}
+
+function hasAuditConsistencyRisk(text: string): boolean {
+  const updatesEntity = /\b(update|save|approve|reject|moderate|status|set)\b/.test(text);
+  const writesAudit = /\b(audit|moderationaudit|moderation_audit|log|history)\b/.test(text);
+
+  return updatesEntity && writesAudit;
+}
+
+function hasInputValidationRisk(text: string): boolean {
+  const readsRequestInput = /\breq\.(?:body|query|params)\.[a-zA-Z0-9_]+\b/i.test(text);
+  const persistsOrControlsBehavior =
+    /\b(create|save|update|insert|persist|approve|reject|moderate|status|audit|log|reason)\b/.test(text);
+  const validatesInput =
+    /\b(validate|validation|zod|joi|schema\.parse|safeparse|express-validator|sanitize|trim|length|min|max|enum)\b/.test(
+      text
+    );
+
+  return readsRequestInput && persistsOrControlsBehavior && !validatesInput;
+}
+
+function contextHasNegativeAuthorizationTest(context: ReviewGraphContext): boolean {
+  const testText = [
+    ...context.changedFiles
+      .filter((file) => isTestPath(file.path))
+      .map((file) => file.patch ?? ""),
+    ...context.repoFiles
+      .filter((file) => file.role === "test" || isTestPath(file.path))
+      .map((file) => `${file.path}\n${file.summary ?? ""}\n${file.content ?? ""}`)
+  ]
+    .join("\n")
+    .toLowerCase();
+
+  return /\b(non-admin|nonadmin|403|forbidden|unauthorized|not authorized|permission denied)\b/.test(testText);
+}
+
+function isTestPath(filePath: string): boolean {
+  return /(?:^|[\\/])(?:__tests__|tests?)[\\/]/i.test(filePath) || /\.(?:test|spec)\.[^.]+$/i.test(filePath);
+}
+
+function dedupeRiskHints(hints: RiskHint[]): RiskHint[] {
+  const seen = new Set<string>();
+  const deduped: RiskHint[] = [];
+
+  for (const hint of hints) {
+    if (!seen.has(hint.id)) {
+      seen.add(hint.id);
+      deduped.push(hint);
+    }
+  }
+
+  return deduped;
 }
 
 function extractChangedSymbols(file: ReviewGraphFile): string[] {
@@ -402,25 +600,27 @@ function reviewerPrompt(reviewer: ReviewerKind): string {
   if (reviewer === "security") {
     return [
       "You are RepoCouncil Security Reviewer. Return only evidence-backed security findings.",
+      "Use context.riskHints as a checklist for where to look, but do not treat a riskHint as a finding by itself.",
       "Webhook signature verification applies only to webhook handlers, not normal authenticated API or admin routes.",
       "For webhook handlers, the signed raw body must be part of signature verification.",
       "For webhook handlers, verification results must not be cached only by signature header.",
       "For webhook handlers, any signature cache key must include every security-sensitive input that can affect the result.",
       "For admin and API routes, focus on authentication versus authorization, missing admin role or permission checks, user-controlled identity, ownership checks, and tenant boundaries.",
+      "When request body, query, or params fields are persisted or control privileged behavior, check for presence, type, bounds, and allowed-value validation.",
       "Treat caches in auth, token, permission, signature, or webhook validation paths as high-risk unless the cache key includes all relevant context.",
       "For each finding, explain whether the result depends on rawBody, secret, signatureHeader, user, tenant, permission context, ownership, or route context."
     ].join(" ");
   }
 
   if (reviewer === "quality") {
-    return "You are RepoCouncil Quality Reviewer. Return only evidence-backed correctness and maintainability findings.";
+    return "You are RepoCouncil Quality Reviewer. Use context.riskHints as a checklist, but return only evidence-backed correctness and maintainability findings. Prioritize missing validation when request body, query, or params values are persisted or used to control state changes.";
   }
 
   if (reviewer === "test") {
-    return "You are RepoCouncil Test Reviewer. Return only evidence-backed testing gaps and suggested tests.";
+    return "You are RepoCouncil Test Reviewer. Use context.riskHints to identify required negative and regression tests, but return only evidence-backed testing gaps and suggested tests. Cover invalid request inputs and non-admin authorization boundaries for privileged routes.";
   }
 
-  return "You are RepoCouncil generic reviewer. Return only evidence-backed findings.";
+  return "You are RepoCouncil generic reviewer. Use context.riskHints as a checklist, but return only evidence-backed findings.";
 }
 
 function reviewerNodeName(reviewer: ReviewerKind): string {

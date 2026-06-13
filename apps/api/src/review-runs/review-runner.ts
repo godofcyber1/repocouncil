@@ -387,6 +387,17 @@ function buildTraceEventInput(
     };
   }
 
+  if (trace.node === "issue_detection_prepass") {
+    return {
+      changedFiles: graphInput.changedFiles?.map((file) => file.path) ?? [],
+      riskHints: graphResult.context.riskHints.map((hint) => ({
+        kind: hint.kind,
+        file: hint.file,
+        checklist: hint.checklist
+      }))
+    };
+  }
+
   if (trace.node === "deterministic_referee") {
     return {
       candidateCount: graphResult.candidateFindings.length,
@@ -410,6 +421,12 @@ function summarizeContextForTrace(context: ReviewGraphResult["context"]) {
       source: signal.source,
       kind: signal.kind,
       file: signal.file
+    })),
+    riskHints: context.riskHints.map((hint) => ({
+      id: hint.id,
+      kind: hint.kind,
+      file: hint.file,
+      summary: hint.summary
     })),
     reviewFocus: context.reviewFocus
   };

@@ -41,6 +41,32 @@ const input = {
   ]
 };
 
+const mediumAdminRouteInput = {
+  ...input,
+  changedFiles: [
+    {
+      path: "src/routes/admin-routes.ts",
+      patch: [
+        "@@ -12,6 +12,24 @@ router.post('/articles/:id/approve', async (req, res) => {",
+        "+  const moderatorId = req.body.moderatorId;",
+        "+  const reason = req.body.reason;",
+        "+  await Article.updateOne({ _id: req.params.id }, { status: 'approved' });",
+        "+  await ModerationAudit.create({ articleId: req.params.id, moderatorId, reason });",
+        "+  res.json({ ok: true });",
+        "+});"
+      ].join("\n")
+    }
+  ],
+  repositoryFiles: [
+    {
+      path: "src/routes/admin-routes.test.ts",
+      role: "test" as const,
+      summary: "Positive admin approval test only."
+    }
+  ],
+  toolSignals: []
+};
+
 describe("runReviewGraph", () => {
   it("runs baseline mode with a generic reviewer", async () => {
     const result = await runReviewGraph(
@@ -66,6 +92,7 @@ describe("runReviewGraph", () => {
     expect(result.trace.map((event) => event.node)).toEqual([
       "planner",
       "context_builder",
+      "issue_detection_prepass",
       "generic_reviewer",
       "deterministic_referee"
     ]);
@@ -97,6 +124,7 @@ describe("runReviewGraph", () => {
       expect.arrayContaining([
         "planner",
         "context_builder",
+        "issue_detection_prepass",
         "security_reviewer",
         "quality_reviewer",
         "test_reviewer",
@@ -141,12 +169,53 @@ describe("runReviewGraph", () => {
     expect(securityPrompt).toEqual(expect.stringContaining("cached only by signature header"));
     expect(securityPrompt).toEqual(expect.stringContaining("rawBody, secret, signatureHeader"));
     expect(securityPrompt).toEqual(expect.stringContaining("permission context"));
+    expect(securityPrompt).toEqual(expect.stringContaining("Use context.riskHints as a checklist"));
     expect(securityPrompt).toEqual(
       expect.stringContaining("Webhook signature verification applies only to webhook handlers")
     );
     expect(securityPrompt).toEqual(
       expect.stringContaining("For admin and API routes, focus on authentication versus authorization")
     );
+  });
+
+  it("generates medium admin route risk hints before reviewer fan-out", async () => {
+    const provider = new RecordingProvider();
+    const result = await runReviewGraph(
+      {
+        ...mediumAdminRouteInput,
+        mode: "council"
+      },
+      {
+        modelProvider: provider
+      }
+    );
+
+    expect(result.context.riskHints.map((hint) => hint.kind).sort()).toEqual([
+      "admin_route",
+      "audit_consistency",
+      "input_validation",
+      "request_controlled_identity",
+      "security_boundary_tests"
+    ]);
+    expect(result.context.riskHints[0]).toEqual(
+      expect.objectContaining({
+        file: "src/routes/admin-routes.ts",
+        checklist: expect.arrayContaining([
+          expect.stringContaining("authentication versus authorization")
+        ])
+      })
+    );
+    expect(result.trace.map((event) => event.node).indexOf("issue_detection_prepass")).toBeLessThan(
+      result.trace.map((event) => event.node).indexOf("security_reviewer")
+    );
+
+    const securityRequest = provider.requests
+      .filter((request) => request.schemaName === "ReviewFindingList")
+      .find((request) => request.messages.some((message) => message.content.includes('"reviewer":"security"')));
+    const userMessage = securityRequest?.messages.find((message) => message.role === "user")?.content;
+
+    expect(userMessage).toEqual(expect.stringContaining('"riskHints"'));
+    expect(userMessage).toEqual(expect.stringContaining("security_boundary_tests"));
   });
 });
 

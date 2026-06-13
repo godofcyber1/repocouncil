@@ -246,6 +246,41 @@ describe("deterministic referee", () => {
     );
   });
 
+  it("keeps concrete missing admin authorization candidates", () => {
+    const authorization = candidate({
+      id: "missing-admin-authorization",
+      reviewer: "security",
+      category: "security",
+      title: "Missing admin authorization check on approval route",
+      body:
+        "The article approval route performs a privileged action without evidence of an explicit admin role or permission check.",
+      file: "src/routes/admin-routes.ts",
+      startLine: 20,
+      severity: "high",
+      confidence: 0.86,
+      evidence: [
+        "The changed route approves articles.",
+        "No explicit admin role or permission check appears before the state update."
+      ]
+    });
+
+    const result = runDeterministicReferee([authorization]);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]).toEqual(
+      expect.objectContaining({
+        id: "missing-admin-authorization",
+        category: "security"
+      })
+    );
+    expect(result.decision.decisions[0]).toEqual(
+      expect.objectContaining({
+        candidateId: "missing-admin-authorization",
+        decision: "accepted"
+      })
+    );
+  });
+
   it("rejects webhook signature false positives on normal API routes", () => {
     const falsePositive = candidate({
       id: "webhook-false-positive",

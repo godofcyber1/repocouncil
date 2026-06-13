@@ -49,7 +49,7 @@ export function runDeterministicReferee(
   const companionTargets = findTestingCompanionTargets(eligibleCandidates);
   const nonCompanionCandidates = eligibleCandidates.filter((candidate) => !companionTargets.has(candidate));
   const groups = groupCandidates(nonCompanionCandidates);
-  const companionsByGroupKey = groupTestingCompanions(eligibleCandidates, companionTargets);
+  const companionsByGroupKey = groupTestingCompanions(groups, companionTargets);
   const findings: ReviewFinding[] = [];
   const decisions: RefereeDecision["decisions"] = preRejectedCandidates.map(({ candidate, reason }) =>
     createDecision(
@@ -169,7 +169,7 @@ function groupCandidates(
   const groups = new Map<string, ReviewFindingCandidate[]>();
 
   for (const candidate of candidates) {
-    const key = groupKeyForCandidate(candidate);
+    const key = findSemanticDuplicateGroupKey(candidate, groups) ?? groupKeyForCandidate(candidate);
     const group = groups.get(key) ?? [];
     group.push(candidate);
     groups.set(key, group);
@@ -199,23 +199,37 @@ function findTestingCompanionTargets(
 }
 
 function groupTestingCompanions(
-  candidates: ReviewFindingCandidate[],
+  groups: Map<string, ReviewFindingCandidate[]>,
   companionTargets: Map<ReviewFindingCandidate, ReviewFindingCandidate>
 ): Map<string, ReviewFindingCandidate[]> {
   const companionsByGroupKey = new Map<string, ReviewFindingCandidate[]>();
 
   for (const [companion, target] of companionTargets.entries()) {
-    if (!candidates.includes(companion)) {
+    const groupKey = findGroupKeyContainingCandidate(groups, target);
+
+    if (!groupKey) {
       continue;
     }
 
-    const groupKey = groupKeyForCandidate(target);
     const companions = companionsByGroupKey.get(groupKey) ?? [];
     companions.push(companion);
     companionsByGroupKey.set(groupKey, companions);
   }
 
   return companionsByGroupKey;
+}
+
+function findGroupKeyContainingCandidate(
+  groups: Map<string, ReviewFindingCandidate[]>,
+  target: ReviewFindingCandidate
+): string | null {
+  for (const [groupKey, group] of groups.entries()) {
+    if (group.includes(target)) {
+      return groupKey;
+    }
+  }
+
+  return null;
 }
 
 function isTestingCompanion(
@@ -472,28 +486,129 @@ function normalizeLineRange(candidate: ReviewFindingCandidate): string {
 }
 
 function groupKeyForCandidate(candidate: ReviewFindingCandidate): string {
-  const semanticGroupKey = semanticDuplicateGroupKey(candidate);
-
-  if (semanticGroupKey) {
-    return semanticGroupKey;
-  }
-
   return `${candidate.file}:${normalizeLineRange(candidate)}:${candidate.category}`;
 }
 
-function semanticDuplicateGroupKey(candidate: ReviewFindingCandidate): string | null {
-  const terms = extractBehaviorTerms(allCandidateText(candidate));
-
-  if (
-    terms.has("validation") &&
-    (terms.has("moderation") || terms.has("audit")) &&
-    (terms.has("reason") || terms.has("audit"))
-  ) {
-    return "semantic:moderation-audit-reason-validation";
+function findSemanticDuplicateGroupKey(
+  candidate: ReviewFindingCandidate,
+  groups: Map<string, ReviewFindingCandidate[]>
+): string | null {
+  for (const [groupKey, group] of groups.entries()) {
+    if (group.some((existingCandidate) => areSemanticDuplicates(candidate, existingCandidate))) {
+      return groupKey;
+    }
   }
 
   return null;
 }
+
+function areSemanticDuplicates(
+  left: ReviewFindingCandidate,
+  right: ReviewFindingCandidate
+): boolean {
+  const sharedFamilies = intersectSets(semanticFamilies(left), semanticFamilies(right));
+
+  if (!canMergeAcrossLocations(left, right, sharedFamilies)) {
+    return false;
+  }
+
+  const leftTerms = extractBehaviorTerms(allCandidateText(left));
+  const rightTerms = extractBehaviorTerms(allCandidateText(right));
+  const sharedTerms = countSharedTerms(leftTerms, rightTerms);
+
+  if (sharedFamilies.size === 0 || sharedTerms < 2) {
+    return false;
+  }
+
+  return true;
+}
+
+function canMergeAcrossLocations(
+  left: ReviewFindingCandidate,
+  right: ReviewFindingCandidate,
+  sharedFamilies: Set<string>
+): boolean {
+  return left.file === right.file || left.category === right.category || sharedFamilies.has("validation");
+}
+
+function countSharedTerms(left: Set<string>, right: Set<string>): number {
+  return [...left].filter((term) => right.has(term)).length;
+}
+
+function sharesAnyTerm(left: Set<string>, right: Set<string>, terms: Set<string>): boolean {
+  return [...terms].some((term) => left.has(term) && right.has(term));
+}
+
+function intersectSets<T>(left: Set<T>, right: Set<T>): Set<T> {
+  return new Set([...left].filter((item) => right.has(item)));
+}
+
+function semanticFamilies(candidate: ReviewFindingCandidate): Set<string> {
+  const terms = extractBehaviorTerms(coreCandidateText(candidate));
+  const families = new Set<string>();
+
+  if (sharesAnyTerm(terms, terms, VALIDATION_TERMS)) {
+    families.add("validation");
+  }
+
+  if (hasAuthorizationFamily(terms)) {
+    families.add("authorization");
+  }
+
+  if (sharesAnyTerm(terms, terms, AUDIT_TERMS)) {
+    families.add("audit_consistency");
+  }
+
+  return families;
+}
+
+function hasAuthorizationFamily(terms: Set<string>): boolean {
+  return (
+    sharesAnyTerm(terms, terms, AUTHORIZATION_TERMS) ||
+    (terms.has("admin") && (terms.has("access") || terms.has("check") || terms.has("negative")))
+  );
+}
+
+const VALIDATION_TERMS = new Set([
+  "valid",
+  "validate",
+  "validating",
+  "validation",
+  "validated",
+  "unvalidated",
+  "invalid",
+  "required",
+  "empty",
+  "bounded",
+  "sanitize",
+  "sanitized"
+]);
+
+const AUTHORIZATION_TERMS = new Set([
+  "auth",
+  "authentication",
+  "authorization",
+  "authorize",
+  "authorized",
+  "unauthorized",
+  "forbidden",
+  "role",
+  "permission",
+  "privilege",
+  "tenant",
+  "ownership",
+  "owner"
+]);
+
+const AUDIT_TERMS = new Set([
+  "audit",
+  "auditing",
+  "transaction",
+  "consistency",
+  "partial",
+  "failure",
+  "rollback"
+]);
 
 function isWebhookSignatureFalsePositive(candidate: ReviewFindingCandidate): boolean {
   const text = allCandidateText(candidate);
@@ -531,6 +646,10 @@ function decisionCandidateId(candidate: ReviewFindingCandidate): string {
 
 function allCandidateText(candidate: ReviewFindingCandidate): string {
   return `${candidate.title} ${candidate.body} ${candidate.file} ${candidate.category} ${candidate.evidence.join(" ")}`.toLowerCase();
+}
+
+function coreCandidateText(candidate: ReviewFindingCandidate): string {
+  return `${candidate.title} ${candidate.body} ${candidate.file} ${candidate.category}`.toLowerCase();
 }
 
 function dedupeStrings(values: string[]): string[] {

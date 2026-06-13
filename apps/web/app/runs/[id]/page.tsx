@@ -120,6 +120,12 @@ type ReviewContextBundle = {
     file?: string;
     message?: string;
   }>;
+  riskHints: Array<{
+    id?: string;
+    kind?: string;
+    file?: string;
+    summary?: string;
+  }>;
   reviewFocus: string[];
 };
 
@@ -263,7 +269,7 @@ export default async function ReviewRunPage({ params, searchParams }: PageProps)
           title="Context bundle"
           body={
             reviewContext
-              ? `${reviewContext.repoFiles.length} repo files, ${reviewContext.toolSignals.length} tool signals`
+              ? `${reviewContext.repoFiles.length} repo files, ${reviewContext.toolSignals.length} tool signals, ${reviewContext.riskHints.length} risk hints`
               : `${run.changedFiles.length} files prepared`
           }
         />
@@ -787,6 +793,7 @@ function extractReviewContext(trace: ReviewRunDetail["trace"]): ReviewContextBun
     repoGuidelines: readContextFiles(output.repoGuidelines),
     relatedFiles: readContextFiles(output.relatedFiles),
     toolSignals: readToolSignals(output.toolSignals),
+    riskHints: readRiskHints(output.riskHints),
     reviewFocus: Array.isArray(output.reviewFocus)
       ? output.reviewFocus.filter((item): item is string => typeof item === "string")
       : []
@@ -820,11 +827,23 @@ function readToolSignals(value: unknown): ReviewContextBundle["toolSignals"] {
   return value.filter(isToolSignal);
 }
 
+function readRiskHints(value: unknown): ReviewContextBundle["riskHints"] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter(isRiskHint);
+}
+
 function isContextFile(value: unknown): value is ReviewContextBundle["repoFiles"][number] {
   return isRecord(value) && typeof value.path === "string" && typeof value.role === "string";
 }
 
 function isToolSignal(value: unknown): value is ReviewContextBundle["toolSignals"][number] {
+  return isRecord(value);
+}
+
+function isRiskHint(value: unknown): value is ReviewContextBundle["riskHints"][number] {
   return isRecord(value);
 }
 
