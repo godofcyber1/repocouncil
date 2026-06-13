@@ -173,6 +173,7 @@ export default async function ReviewRunPage({ params, searchParams }: PageProps)
   const decisionsByCandidateId = new Map(
     refereeDecision?.decisions.map((decision) => [decision.candidateId, decision]) ?? []
   );
+  const candidatesByDecisionId = buildCandidateDecisionLookup(candidateFindings);
   const highPriorityFindings = run.findingsList.filter(isHighPriorityFinding).length;
   const acceptedCandidates =
     refereeDecision?.decisions.filter((decision) => decision.decision === "accepted").length ?? 0;
@@ -401,12 +402,12 @@ export default async function ReviewRunPage({ params, searchParams }: PageProps)
             {refereeDecision.decisions.map((decision) => (
               <div className="decisionRow" key={decision.candidateId}>
                 <div>
-                  <strong>{decision.candidateId}</strong>
+                  <strong>{formatDecisionCandidateLabel(decision.candidateId, candidatesByDecisionId)}</strong>
                   <p>{decision.reason}</p>
                 </div>
                 <span className={`decisionPill ${decision.decision}`}>{decision.decision}</span>
                 <span>{Math.round(decision.score)}</span>
-                <span>{decision.mergedIntoId ?? "--"}</span>
+                <span>{formatMergedIntoLabel(decision.mergedIntoId, candidatesByDecisionId)}</span>
               </div>
             ))}
           </div>
@@ -907,6 +908,60 @@ function groupCandidatesByReviewer(
   return [...groups.entries()].sort(
     ([left], [right]) => reviewerOrder(left, order) - reviewerOrder(right, order)
   );
+}
+
+function buildCandidateDecisionLookup(
+  candidates: ReviewFindingCandidate[]
+): Map<string, ReviewFindingCandidate> {
+  const lookup = new Map<string, ReviewFindingCandidate>();
+
+  for (const candidate of candidates) {
+    lookup.set(candidate.id, candidate);
+
+    if (candidate.reviewerRunId) {
+      lookup.set(candidate.reviewerRunId, candidate);
+    }
+  }
+
+  return lookup;
+}
+
+function formatDecisionCandidateLabel(
+  candidateId: string,
+  candidatesByDecisionId: Map<string, ReviewFindingCandidate>
+): string {
+  const candidate = candidatesByDecisionId.get(candidateId);
+
+  if (!candidate) {
+    return compactInternalId(candidateId);
+  }
+
+  return `${formatReviewerLabel(candidate.reviewer)} · ${candidate.title}`;
+}
+
+function formatMergedIntoLabel(
+  mergedIntoId: string | undefined,
+  candidatesByDecisionId: Map<string, ReviewFindingCandidate>
+): string {
+  if (!mergedIntoId) {
+    return "--";
+  }
+
+  return `merged into ${formatDecisionCandidateLabel(mergedIntoId, candidatesByDecisionId)}`;
+}
+
+function formatReviewerLabel(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function compactInternalId(value: string): string {
+  const parts = value.split(":");
+
+  if (parts.length >= 3) {
+    return `${parts[parts.length - 2]} candidate ${Number(parts[parts.length - 1]) + 1}`;
+  }
+
+  return value;
 }
 
 function reviewerOrder(reviewer: string, order: string[]): number {
