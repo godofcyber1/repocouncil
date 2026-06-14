@@ -454,6 +454,72 @@ describe("deterministic referee", () => {
     );
   });
 
+  it("calibrates plain input-validation security findings to correctness", () => {
+    const validation = candidate({
+      id: "visibility-validation",
+      reviewer: "generic",
+      title: "Missing validation for visibility field in update draft post service",
+      body:
+        "The update service accepts the visibility field from request input without validating allowed values.",
+      file: "src/services/post.service.ts",
+      startLine: 245,
+      endLine: 252,
+      category: "security",
+      severity: "medium",
+      evidence: [
+        "visibility is read from request input.",
+        "No allowed-value validation appears before persistence."
+      ],
+      suggestedPatch: "Validate visibility against the allowed values before saving."
+    });
+
+    const result = runDeterministicReferee([validation]);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]).toEqual(
+      expect.objectContaining({
+        id: "visibility-validation",
+        category: "correctness"
+      })
+    );
+    expect(result.decision.decisions[0]).toEqual(
+      expect.objectContaining({
+        candidateId: "visibility-validation",
+        decision: "accepted"
+      })
+    );
+  });
+
+  it("keeps ownership and authorization findings categorized as security", () => {
+    const ownership = candidate({
+      id: "ownership-security",
+      reviewer: "security",
+      title: "Potential missing ownership check in getDraftPostService",
+      body:
+        "The draft post service can return a private post without checking ownership against the authenticated user.",
+      file: "src/services/post.service.ts",
+      startLine: 193,
+      endLine: 205,
+      category: "security",
+      severity: "medium",
+      evidence: [
+        "The code reads a private draft post.",
+        "No owner or authenticated user comparison is visible before returning it."
+      ],
+      suggestedPatch: "Check post.author against the authenticated user before returning the draft."
+    });
+
+    const result = runDeterministicReferee([ownership]);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]).toEqual(
+      expect.objectContaining({
+        id: "ownership-security",
+        category: "security"
+      })
+    );
+  });
+
   it("merges compatible negative tests into access-control findings and caps suggested tests", () => {
     const ownership = candidate({
       id: "ownership-control",

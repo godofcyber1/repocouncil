@@ -383,7 +383,7 @@ function mergeGroup(
     file: primary.file,
     severity: primary.severity,
     confidence: primary.confidence,
-    category: primary.category,
+    category: calibratedCategory(primary),
     evidence
   };
 
@@ -457,6 +457,47 @@ function categoryMismatchPenalty(candidate: ReviewFindingCandidate): number {
   }
 
   return 12;
+}
+
+function calibratedCategory(candidate: ReviewFindingCandidate): string {
+  if (candidate.category !== "security") {
+    return candidate.category;
+  }
+
+  if (shouldDowngradeSecurityToCorrectness(candidate)) {
+    return "correctness";
+  }
+
+  return candidate.category;
+}
+
+function shouldDowngradeSecurityToCorrectness(candidate: ReviewFindingCandidate): boolean {
+  const issueType = normalizedIssueType(candidate);
+
+  return issueType === "input_validation" && !hasSecurityBoundaryTerms(candidate);
+}
+
+function hasSecurityBoundaryTerms(candidate: ReviewFindingCandidate): boolean {
+  const text = allCandidateText(candidate);
+
+  return [
+    "auth",
+    "authorization",
+    "authentication",
+    "role",
+    "permission",
+    "tenant",
+    "owner",
+    "ownership",
+    "signature",
+    "webhook",
+    "token",
+    "secret",
+    "private data",
+    "sensitive",
+    "exposure",
+    "leak"
+  ].some((term) => text.includes(term));
 }
 
 function hasSecurityRiskTerms(candidate: ReviewFindingCandidate): boolean {
