@@ -255,6 +255,8 @@ The current MVP uses a deterministic referee. `QWEN_MODEL_REFEREE` is reserved f
 
 For Qwen / Alibaba Cloud Model Studio setup notes, see [docs/public/qwen-configuration.md](./docs/public/qwen-configuration.md).
 
+For local typecheck, lint, Semgrep, and Gitleaks evidence setup, see [docs/public/tool-evidence.md](./docs/public/tool-evidence.md).
+
 ## GitHub App Setup
 
 Live publishing requires a GitHub App installed on the target repository.
