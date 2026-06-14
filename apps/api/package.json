@@ -12,6 +12,7 @@
     "eval:p2-tools": "tsx src/scripts/run-tool-evidence-ablation.ts",
     "eval:summary": "tsx src/scripts/write-eval-summary.ts",
     "start": "node dist/server.js",
+    "suggestions:mock": "tsx src/scripts/run-suggestion-mock.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",

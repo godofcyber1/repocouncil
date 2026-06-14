@@ -29,6 +29,7 @@
     "rerun:review-run": "npm run rerun:review-run -w @repocouncil/api --",
     "review:baseline": "npm run build -w @repocouncil/shared && npm run review:baseline -w @repocouncil/api",
     "set:review-run-mode": "npm run set:review-run-mode -w @repocouncil/api --",
+    "suggestions:mock": "npm run suggestions:mock -w @repocouncil/api",
     "typecheck": "npm run build -w @repocouncil/shared && npm run typecheck -w @repocouncil/api && npm run typecheck -w @repocouncil/web",
     "validate:webhook-fixture": "npm run validate:webhook-fixture -w @repocouncil/api",
     "test": "npm run test --workspaces --if-present"
