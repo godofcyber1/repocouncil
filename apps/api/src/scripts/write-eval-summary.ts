@@ -28,8 +28,8 @@ function renderSummary(
     "",
     "## Latest Result Table",
     "",
-    "| File | Stage | Mode | Variant | Fixtures | Candidates | Final | Matched | Precision | Recall | F1 | Noise | Score | Calls | Tokens |",
-    "|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+    "| File | Stage | Mode | Variant | Fixtures | Candidates | Final | Matched | Strict Recall | Loose Recall | Precision | Noise | Decisions | Category Cal. | Actionability | Line Acc. | Score |",
+    "|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|",
     ...results.map(resultRow),
     "",
     "## Baseline And Council Notes",
@@ -64,13 +64,15 @@ function resultRow(result: EvalResultRecord): string {
     result.candidate_findings,
     result.final_findings,
     result.matched_findings,
+    formatNumber(result.strict_recall ?? result.recall),
+    formatNumber(result.loose_recall ?? result.recall),
     formatNumber(result.precision),
-    formatNumber(result.recall),
-    formatNumber(result.f1),
     formatNumber(result.noise_rate),
-    formatNumber(result.repocouncil_score),
-    result.model_calls,
-    result.input_tokens + result.output_tokens
+    `${result.accepted_candidates ?? 0}/${result.merged_candidates ?? 0}/${result.rejected_candidates ?? 0}`,
+    formatNumber(result.category_calibration ?? 0),
+    formatNumber(result.actionability_rate),
+    formatNumber(result.line_localization_accuracy),
+    formatNumber(result.repocouncil_score)
   ]
     .map(cell)
     .join("|")
@@ -94,23 +96,29 @@ function failureRow(failure: EvalFailureRecord): string {
 }
 
 function takeaways(results: EvalResultRecord[]): string[] {
-  const qwenBaseline = findByStage(results, "qwen-smoke-baseline-v2");
-  const qwenCouncil = findByStage(results, "qwen-smoke-council-v2");
-  const seededCouncil = findByStage(results, "p0-system-council");
+  const lockedBaseline = findLockedVariant(results, "baseline");
+  const lockedCouncil = findLockedVariant(results, "full-council");
 
   return [
-    qwenBaseline && qwenCouncil
-      ? `- Real Qwen council improved recall from ${formatNumber(qwenBaseline.recall)} to ${formatNumber(qwenCouncil.recall)} compared with the single-reviewer baseline, while model calls increased from ${qwenBaseline.model_calls} to ${qwenCouncil.model_calls}.`
-      : "- Real Qwen baseline/council comparison is not complete yet.",
-    seededCouncil
-      ? `- Seeded P0 council remains the deterministic sanity check: F1 ${formatNumber(seededCouncil.f1)}, score ${formatNumber(seededCouncil.repocouncil_score)}.`
-      : "- Seeded P0 council sanity check is not recorded yet.",
-    "- Testing recall is the next quality target for real model runs."
+    lockedBaseline && lockedCouncil
+      ? `- Locked seeded set: full-council strict recall ${formatNumber(lockedCouncil.strict_recall ?? lockedCouncil.recall)} vs baseline ${formatNumber(lockedBaseline.strict_recall ?? lockedBaseline.recall)}, loose recall ${formatNumber(lockedCouncil.loose_recall ?? lockedCouncil.recall)} vs ${formatNumber(lockedBaseline.loose_recall ?? lockedBaseline.recall)}.`
+      : "- Locked baseline/full-council comparison is not complete yet.",
+    lockedCouncil
+      ? `- Full-council referee decisions: accepted ${lockedCouncil.accepted_candidates ?? 0}, merged ${lockedCouncil.merged_candidates ?? 0}, rejected ${lockedCouncil.rejected_candidates ?? 0}; duplicate reduction ${formatNumber(lockedCouncil.duplicate_reduction_rate)}.`
+      : "- Full-council referee decision counts are not recorded yet.",
+    lockedBaseline && lockedCouncil
+      ? `- Noise changed from ${formatNumber(lockedBaseline.noise_rate)} to ${formatNumber(lockedCouncil.noise_rate)}; actionability changed from ${formatNumber(lockedBaseline.actionability_rate)} to ${formatNumber(lockedCouncil.actionability_rate)}.`
+      : "- Noise and actionability comparison is pending."
   ];
 }
 
-function findByStage(results: EvalResultRecord[], stage: string): EvalResultRecord | undefined {
-  return results.find((result) => result.stage === stage);
+function findLockedVariant(results: EvalResultRecord[], variant: string): EvalResultRecord | undefined {
+  const expectedFileName = `${variant}.json`;
+
+  return (
+    results.find((result) => result.fileName === expectedFileName) ??
+    results.find((result) => result.variant === variant)
+  );
 }
 
 function formatNumber(value: number): string {

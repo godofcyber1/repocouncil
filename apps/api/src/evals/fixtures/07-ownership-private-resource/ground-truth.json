@@ -1,0 +1,59 @@
+[
+  {
+    "id": "gt-a1",
+    "title": "Ownership check uses request-controlled userId",
+    "category": "security",
+    "severity": "high",
+    "file": "src/routes/private-resource.ts",
+    "lineRange": [20, 26],
+    "expectedSignals": [
+      "ownerId",
+      "req.params.userId",
+      "authenticated",
+      "request-controlled",
+      "cross-user"
+    ],
+    "mustBeDetectedBy": ["council_specialization", "repo_context"],
+    "acceptableCategories": ["security"],
+    "acceptableSeverities": ["high", "critical"],
+    "explanation": "Private resource ownership must be checked against authenticated identity. Comparing ownerId with req.params.userId lets callers change the acting identity."
+  },
+  {
+    "id": "gt-a2",
+    "title": "Missing cross-user negative authorization test",
+    "category": "testing",
+    "severity": "medium",
+    "file": "src/routes/private-resource.ts",
+    "lineRange": [20, 30],
+    "expectedSignals": [
+      "user A",
+      "user B",
+      "private resource",
+      "403",
+      "cross-user"
+    ],
+    "mustBeDetectedBy": ["test_reviewer"],
+    "acceptableCategories": ["security", "testing"],
+    "acceptableSeverities": ["medium", "high", "critical"],
+    "explanation": "The PR needs a negative test proving one user cannot update another user's private resource."
+  },
+  {
+    "id": "gt-v1",
+    "title": "Input validation should not merge into ownership finding",
+    "category": "correctness",
+    "severity": "medium",
+    "file": "src/routes/private-resource.ts",
+    "lineRange": [27, 29],
+    "expectedSignals": [
+      "status",
+      "title",
+      "req.body",
+      "validation",
+      "allowed values"
+    ],
+    "mustBeDetectedBy": ["quality_reviewer", "deterministic_referee"],
+    "acceptableCategories": ["correctness", "quality"],
+    "acceptableSeverities": ["medium", "high"],
+    "explanation": "The update payload should validate status/title fields, and this input-validation issue should remain separate from ownership access control."
+  }
+]

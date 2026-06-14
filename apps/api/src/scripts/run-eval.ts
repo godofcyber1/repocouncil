@@ -45,9 +45,11 @@ const outputStem =
   experimentKind === "ablation" || args.variant
     ? `${stage}-${mode}-${slugify(variant)}`
     : `${stage}-${mode}`;
-const outputPath = path.join(outputDir, `${outputStem}.json`);
+const outputPath = args.outputFile
+  ? resolveFromRepoRoot(args.outputFile)
+  : path.join(outputDir, `${outputStem}.json`);
 
-await fs.mkdir(outputDir, { recursive: true });
+await fs.mkdir(path.dirname(outputPath), { recursive: true });
 
 try {
   const resolvedProvider = createModelProvider(providerKind ? { kind: providerKind } : {});
@@ -84,6 +86,7 @@ function parseArgs(rawArgs: string[]): {
   input?: string;
   fixtures?: string;
   outputDir?: string;
+  outputFile?: string;
   provider?: string;
   experiment?: string;
   variant?: string;
@@ -97,6 +100,7 @@ function parseArgs(rawArgs: string[]): {
     input?: string;
     fixtures?: string;
     outputDir?: string;
+    outputFile?: string;
     provider?: string;
     experiment?: string;
     variant?: string;
@@ -123,6 +127,9 @@ function parseArgs(rawArgs: string[]): {
       index += 1;
     } else if (arg === "--output-dir" && value) {
       parsed.outputDir = value;
+      index += 1;
+    } else if (arg === "--output-file" && value) {
+      parsed.outputFile = value;
       index += 1;
     } else if (arg === "--provider" && value) {
       parsed.provider = value;
@@ -159,6 +166,7 @@ function createEmptyInput(stage: string, mode: "bare" | "baseline" | "council"):
     groundTruth: [],
     candidateFindings: [],
     finalFindings: [],
+    refereeDecisions: [],
     metadata: {
       publishSuccess: true
     }

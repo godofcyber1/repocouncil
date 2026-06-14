@@ -41,6 +41,21 @@ describe("evaluateRepoCouncil", () => {
           evidence: ["style"]
         })
       ],
+      refereeDecisions: [
+        {
+          candidateId: "candidate-1",
+          decision: "accepted",
+          score: 50,
+          reason: "Highest scoring candidate."
+        },
+        {
+          candidateId: "candidate-2",
+          decision: "merged",
+          score: 45,
+          reason: "Merged duplicate candidate.",
+          mergedIntoId: "candidate-1"
+        }
+      ],
       metadata: {
         latencyMs: 1200,
         modelCalls: 4,
@@ -60,10 +75,16 @@ describe("evaluateRepoCouncil", () => {
         candidate_findings: 2,
         final_findings: 2,
         matched_findings: 1,
+        strict_recall: 1,
+        loose_recall: 1,
         precision: 0.5,
         recall: 1,
         noise_rate: 0.5,
         duplicate_reduction_rate: 0,
+        accepted_candidates: 1,
+        merged_candidates: 1,
+        rejected_candidates: 0,
+        category_calibration: 0.5,
         security_recall: 1,
         actionability_rate: 0.5,
         line_localization_accuracy: 1,

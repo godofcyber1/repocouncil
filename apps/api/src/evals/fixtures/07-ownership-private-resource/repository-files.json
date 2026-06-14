@@ -1,0 +1,7 @@
+[
+  {
+    "path": "AGENTS.md",
+    "role": "guideline",
+    "summary": "Private resources must compare ownerId against authenticated req.user.id, never request params, body, or query identity fields."
+  }
+]

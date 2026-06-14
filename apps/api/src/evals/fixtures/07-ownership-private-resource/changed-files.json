@@ -1,0 +1,6 @@
+[
+  {
+    "path": "src/routes/private-resource.ts",
+    "patch": "@@ -20,6 +20,30 @@ export async function updatePrivateResource(req, res) {\n+  const userId = req.params.userId;\n+  const resource = await Resource.findById(req.params.id);\n+\n+  if (!resource || String(resource.ownerId) !== userId) {\n+    return res.status(404).json({ error: 'not found' });\n+  }\n+\n+  resource.status = req.body.status;\n+  resource.title = req.body.title;\n+  await resource.save();\n+\n+  return res.json(resource);\n+}"
+  }
+]

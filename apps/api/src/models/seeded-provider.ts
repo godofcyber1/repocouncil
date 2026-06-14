@@ -93,7 +93,7 @@ function createSeededFindings(request: ReviewerRequestContext): ReviewFinding[] 
   const findings: ReviewFinding[] = [];
 
   if (
-    reviewer === "security" &&
+    (reviewer === "security" || reviewer === "generic") &&
     changedFiles.some((file) => file.path === "apps/api/src/github/webhook.ts" && file.patch?.includes("console.warn")) &&
     repoGuidelines.some((file) => readContextText(file).includes("fail closed"))
   ) {
@@ -150,7 +150,7 @@ function createSeededFindings(request: ReviewerRequestContext): ReviewFinding[] 
   }
 
   if (
-    reviewer === "quality" &&
+    (reviewer === "quality" || reviewer === "generic") &&
     changedFiles.some((file) => file.path === "apps/api/src/review-runs/review-run-service.ts") &&
     toolSignals.some((signal) => signal.kind === "TS2322")
   ) {
@@ -224,6 +224,89 @@ function createSeededFindings(request: ReviewerRequestContext): ReviewFinding[] 
         "Context builder did not find a related referee regression test."
       ],
       suggestedTests: "Add a referee unit test where equal severity candidates are ordered by evidence and suggested fix strength."
+    });
+  }
+
+  if (
+    reviewer === "security" &&
+    changedFiles.some(
+      (file) =>
+        file.path === "src/routes/private-resource.ts" &&
+        file.patch?.includes("req.params.userId") &&
+        file.patch.includes("ownerId")
+    )
+  ) {
+    findings.push({
+      id: "seeded-ownership-request-controlled-identity",
+      title: "Ownership check uses request-controlled userId instead of authenticated identity",
+      body:
+        "The private resource route compares resource.ownerId with req.params.userId. The acting user identity should come from authenticated req.user.id, otherwise user A can change the params userId and update user B's private resource.",
+      file: "src/routes/private-resource.ts",
+      startLine: 20,
+      endLine: 26,
+      severity: "high",
+      confidence: 0.92,
+      category: "security",
+      evidence: [
+        "Protected resource: private resource.",
+        "Resource owner source: resource.ownerId.",
+        "Acting user identity source: req.params.userId is request-controlled.",
+        "Repository guideline requires comparing ownerId against authenticated req.user.id."
+      ],
+      suggestedPatch: "Compare resource.ownerId with req.user.id or another trusted session/JWT identity."
+    });
+  }
+
+  if (
+    reviewer === "quality" &&
+    changedFiles.some(
+      (file) =>
+        file.path === "src/routes/private-resource.ts" &&
+        file.patch?.includes("req.body.status") &&
+        !file.patch.toLowerCase().includes("validate")
+    )
+  ) {
+    findings.push({
+      id: "seeded-private-resource-input-validation",
+      title: "Private resource update accepts unvalidated request body fields",
+      body:
+        "The route assigns req.body.status and req.body.title directly to the resource without validating allowed status values or required title constraints.",
+      file: "src/routes/private-resource.ts",
+      startLine: 27,
+      endLine: 29,
+      severity: "medium",
+      confidence: 0.86,
+      category: "correctness",
+      evidence: [
+        "Diff writes resource.status from req.body.status.",
+        "Diff writes resource.title from req.body.title.",
+        "No schema or allowed-value validation appears before persistence."
+      ],
+      suggestedTests: "Assert invalid status values and missing title values are rejected."
+    });
+  }
+
+  if (
+    reviewer === "test" &&
+    changedFiles.some((file) => file.path === "src/routes/private-resource.ts")
+  ) {
+    findings.push({
+      id: "seeded-private-resource-cross-user-test",
+      title: "Missing cross-user negative test for private resource ownership",
+      body:
+        "Add a negative test where user A attempts to update user B's private resource and receives 403.",
+      file: "src/routes/private-resource.ts",
+      startLine: 20,
+      endLine: 30,
+      severity: "medium",
+      confidence: 0.87,
+      category: "testing",
+      evidence: [
+        "The route changes private resource ownership enforcement.",
+        "No related cross-user negative test is present in fixture context."
+      ],
+      suggestedTests:
+        "Assert user A cannot update user B's private resource and receives 403."
     });
   }
 

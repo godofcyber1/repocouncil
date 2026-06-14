@@ -67,6 +67,7 @@ export async function loadEvalInputFromFixtures(
   const groundTruth: EvalGroundTruthIssue[] = [];
   const candidateFindings: EvalInput["candidateFindings"] = [];
   const finalFindings: EvalInput["finalFindings"] = [];
+  const refereeDecisions: EvalInput["refereeDecisions"] = [];
 
   for (const fixtureDir of fixtureDirs) {
     const fixtureName = path.basename(fixtureDir);
@@ -122,6 +123,7 @@ export async function loadEvalInputFromFixtures(
     groundTruth.push(...fixture.groundTruth);
     candidateFindings.push(...graphResult.candidateFindings);
     finalFindings.push(...graphResult.findings);
+    refereeDecisions.push(...graphResult.refereeDecision.decisions);
   }
 
   return {
@@ -134,6 +136,7 @@ export async function loadEvalInputFromFixtures(
     groundTruth,
     candidateFindings,
     finalFindings,
+    refereeDecisions,
     metadata: {
       publishSuccess: true
     }
@@ -233,6 +236,7 @@ export async function loadBareEvalInputFromFixtures(
     groundTruth,
     candidateFindings: finalFindings,
     finalFindings,
+    refereeDecisions: [],
     metadata: {
       publishSuccess: true
     }

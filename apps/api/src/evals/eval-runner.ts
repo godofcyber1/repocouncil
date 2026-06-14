@@ -33,6 +33,14 @@ export const EvalFindingSchema = z.object({
   reviewer: z.string().optional()
 });
 
+export const EvalRefereeDecisionSchema = z.object({
+  candidateId: z.string().min(1),
+  decision: z.enum(["accepted", "merged", "rejected"]),
+  score: z.number(),
+  reason: z.string().min(1),
+  mergedIntoId: z.string().optional()
+});
+
 export const EvalInputSchema = z.object({
   stage: z.string().min(1),
   mode: z.enum(["bare", "baseline", "council"]),
@@ -43,6 +51,7 @@ export const EvalInputSchema = z.object({
   groundTruth: z.array(EvalGroundTruthIssueSchema),
   candidateFindings: z.array(EvalFindingSchema).default([]),
   finalFindings: z.array(EvalFindingSchema),
+  refereeDecisions: z.array(EvalRefereeDecisionSchema).default([]),
   metadata: z
     .object({
       latencyMs: z.number().nonnegative().optional(),
@@ -57,6 +66,7 @@ export const EvalInputSchema = z.object({
 export type EvalGroundTruthIssue = z.infer<typeof EvalGroundTruthIssueSchema>;
 export type EvalFinding = z.infer<typeof EvalFindingSchema>;
 export type EvalInput = z.infer<typeof EvalInputSchema>;
+export type EvalRefereeDecision = z.infer<typeof EvalRefereeDecisionSchema>;
 
 export type EvalResult = {
   stage: string;
@@ -69,12 +79,18 @@ export type EvalResult = {
   candidate_findings: number;
   final_findings: number;
   matched_findings: number;
+  strict_recall: number;
+  loose_recall: number;
   precision: number;
   recall: number;
   f1: number;
   noise_rate: number;
   duplicate_reduction_rate: number;
   useful_merge_rate: number;
+  accepted_candidates: number;
+  merged_candidates: number;
+  rejected_candidates: number;
+  category_calibration: number;
   security_recall: number;
   correctness_recall: number;
   testing_recall: number;
@@ -98,6 +114,10 @@ type Match = {
 export function evaluateRepoCouncil(input: unknown): EvalResult {
   const parsed = EvalInputSchema.parse(input);
   const matches = matchFindings(parsed.groundTruth, parsed.finalFindings);
+  const looseMatches = matchFindingsLoose(parsed.groundTruth, [
+    ...parsed.finalFindings,
+    ...parsed.candidateFindings
+  ]);
   const matchedFindingIds = new Set(matches.map((match) => match.finding.id));
   const falsePositiveCount = parsed.finalFindings.filter(
     (finding) => !matchedFindingIds.has(finding.id)
@@ -112,6 +132,8 @@ export function evaluateRepoCouncil(input: unknown): EvalResult {
   const actionabilityRate = calculateActionabilityRate(parsed.finalFindings);
   const localizationAccuracy = calculateLocalizationAccuracy(matches);
   const usefulMergeRate = calculateUsefulMergeRate(parsed.candidateFindings, matches);
+  const decisionCounts = countRefereeDecisions(parsed.refereeDecisions);
+  const categoryCalibration = calculateCategoryCalibration(parsed.groundTruth, parsed.finalFindings);
   const schemaValidRate = 1;
   const runStability = 1;
 
@@ -126,6 +148,8 @@ export function evaluateRepoCouncil(input: unknown): EvalResult {
     candidate_findings: parsed.candidateFindings.length,
     final_findings: parsed.finalFindings.length,
     matched_findings: matches.length,
+    strict_recall: recall,
+    loose_recall: safeDivide(looseMatches.length, parsed.groundTruth.length),
     precision,
     recall,
     f1: calculateF1(precision, recall),
@@ -135,6 +159,10 @@ export function evaluateRepoCouncil(input: unknown): EvalResult {
         ? 0
         : 1 - safeDivide(parsed.finalFindings.length, parsed.candidateFindings.length),
     useful_merge_rate: usefulMergeRate,
+    accepted_candidates: decisionCounts.accepted,
+    merged_candidates: decisionCounts.merged,
+    rejected_candidates: decisionCounts.rejected,
+    category_calibration: categoryCalibration,
     security_recall: categoryRecall.security,
     correctness_recall: categoryRecall.correctness,
     testing_recall: categoryRecall.testing,
@@ -182,6 +210,27 @@ function matchFindings(
   return matches;
 }
 
+function matchFindingsLoose(
+  groundTruth: EvalGroundTruthIssue[],
+  findings: EvalFinding[]
+): Match[] {
+  const matches: Match[] = [];
+  const usedFindingIds = new Set<string>();
+
+  for (const issue of groundTruth) {
+    const match = findings.find(
+      (finding) => !usedFindingIds.has(finding.id) && findingLooselyMatchesIssue(finding, issue)
+    );
+
+    if (match) {
+      usedFindingIds.add(match.id);
+      matches.push({ issue, finding: match });
+    }
+  }
+
+  return matches;
+}
+
 function findingMatchesIssue(finding: EvalFinding, issue: EvalGroundTruthIssue): boolean {
   if (finding.file !== issue.file) {
     return false;
@@ -208,6 +257,21 @@ function findingMatchesIssue(finding: EvalFinding, issue: EvalGroundTruthIssue):
   return matchedSignals(finding, issue.expectedSignals) >= Math.min(2, issue.expectedSignals.length);
 }
 
+function findingLooselyMatchesIssue(finding: EvalFinding, issue: EvalGroundTruthIssue): boolean {
+  if (finding.file !== issue.file) {
+    return false;
+  }
+
+  const acceptableCategories =
+    issue.acceptableCategories.length > 0 ? issue.acceptableCategories : [issue.category];
+
+  if (!acceptableCategories.includes(finding.category)) {
+    return false;
+  }
+
+  return matchedSignals(finding, issue.expectedSignals) >= Math.min(1, issue.expectedSignals.length);
+}
+
 function lineMatches(finding: EvalFinding, issue: EvalGroundTruthIssue): boolean {
   if (!finding.startLine) {
     return false;
@@ -220,9 +284,53 @@ function lineMatches(finding: EvalFinding, issue: EvalGroundTruthIssue): boolean
 }
 
 function matchedSignals(finding: EvalFinding, expectedSignals: string[]): number {
-  const haystack = [finding.title, finding.body, ...finding.evidence].join(" ").toLowerCase();
+  const haystack = [
+    finding.title,
+    finding.body,
+    ...finding.evidence,
+    finding.suggestedPatch ?? "",
+    finding.suggestedTests ?? ""
+  ].join(" ").toLowerCase();
 
   return expectedSignals.filter((signal) => haystack.includes(signal.toLowerCase())).length;
+}
+
+function countRefereeDecisions(decisions: EvalRefereeDecision[]): {
+  accepted: number;
+  merged: number;
+  rejected: number;
+} {
+  return decisions.reduce(
+    (counts, decision) => ({
+      ...counts,
+      [decision.decision]: counts[decision.decision] + 1
+    }),
+    { accepted: 0, merged: 0, rejected: 0 }
+  );
+}
+
+function calculateCategoryCalibration(
+  groundTruth: EvalGroundTruthIssue[],
+  findings: EvalFinding[]
+): number {
+  if (findings.length === 0) {
+    return 0;
+  }
+
+  const calibrated = findings.filter((finding) =>
+    groundTruth.some((issue) => {
+      const acceptableCategories =
+        issue.acceptableCategories.length > 0 ? issue.acceptableCategories : [issue.category];
+
+      return (
+        finding.file === issue.file &&
+        acceptableCategories.includes(finding.category) &&
+        matchedSignals(finding, issue.expectedSignals) >= Math.min(1, issue.expectedSignals.length)
+      );
+    })
+  ).length;
+
+  return calibrated / findings.length;
 }
 
 function calculateCategoryRecall(
