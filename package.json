@@ -19,6 +19,7 @@
     "dev:web": "npm run dev -w @repocouncil/web",
     "execute:review-run": "npm run execute:review-run -w @repocouncil/api --",
     "eval": "npm run eval -w @repocouncil/api --",
+    "eval:fixed": "npm run eval:fixed -w @repocouncil/api",
     "eval:p2-tools": "npm run eval:p2-tools -w @repocouncil/api",
     "eval:summary": "npm run eval:summary -w @repocouncil/api",
     "lint": "npm run lint --workspaces --if-present",
