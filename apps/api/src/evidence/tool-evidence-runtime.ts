@@ -34,6 +34,24 @@ export type CollectToolEvidenceOptions = {
   runner?: ToolEvidenceRunner;
 };
 
+export type ToolEvidenceJobStatus = "skipped" | "passed" | "failed" | "timed_out";
+
+export type ToolEvidenceJobReport = {
+  source: ToolSignal["source"];
+  scriptName: string;
+  commandLabel: string;
+  status: ToolEvidenceJobStatus;
+  exitCode?: number | null;
+  rawSignalCount: number;
+  relatedSignalCount: number;
+  message: string;
+};
+
+export type ToolEvidenceReport = {
+  signals: ToolSignal[];
+  jobs: ToolEvidenceJobReport[];
+};
+
 type PackageJson = {
   scripts?: Record<string, string>;
 };
@@ -50,47 +68,56 @@ const MAX_SIGNALS = 50;
 export async function collectToolEvidence(
   options: CollectToolEvidenceOptions
 ): Promise<ToolSignal[]> {
+  const report = await collectToolEvidenceReport(options);
+
+  return report.signals;
+}
+
+export async function collectToolEvidenceReport(
+  options: CollectToolEvidenceOptions
+): Promise<ToolEvidenceReport> {
   const packageJson = await readPackageJson(options.repoRoot);
   const scripts = packageJson.scripts ?? {};
-  const jobs = buildEvidenceJobs(scripts);
+  const jobs = buildEvidenceJobs();
   const runner = options.runner ?? runCommand;
   const changedPaths = new Set(options.changedFiles.map((file) => normalizePath(file.path)));
   const signals: ToolSignal[] = [];
+  const jobReports: ToolEvidenceJobReport[] = [];
 
   for (const job of jobs) {
+    if (!scripts[job.scriptName]) {
+      jobReports.push(createSkippedJobReport(job));
+      continue;
+    }
+
     const output = await runner({
       command: npmCommand(),
       args: ["run", job.scriptName],
       cwd: options.repoRoot,
       timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS
     });
+    const rawSignals = parseJobOutput(job, output);
+    const relatedSignals = rawSignals.filter((signal) => !signal.file || changedPaths.has(signal.file));
 
-    signals.push(...parseJobOutput(job, output));
+    signals.push(...relatedSignals);
+    jobReports.push(createCompletedJobReport(job, output, rawSignals.length, relatedSignals.length));
   }
 
-  return signals
-    .filter((signal) => !signal.file || changedPaths.has(signal.file))
-    .slice(0, MAX_SIGNALS);
+  return {
+    signals: signals.slice(0, MAX_SIGNALS),
+    jobs: jobReports
+  };
 }
 
-function buildEvidenceJobs(scripts: Record<string, string>): EvidenceJob[] {
+function buildEvidenceJobs(): EvidenceJob[] {
   return [
-    scriptJob(scripts, "typecheck", "typescript", "npm run typecheck"),
-    scriptJob(scripts, "lint", "eslint", "npm run lint"),
-    scriptJob(scripts, "test", "test", "npm run test"),
-    scriptJob(scripts, "semgrep", "semgrep", "npm run semgrep"),
-    scriptJob(scripts, "secret-scan", "secret-scan", "npm run secret-scan"),
-    scriptJob(scripts, "gitleaks", "secret-scan", "npm run gitleaks")
-  ].filter((job): job is EvidenceJob => Boolean(job));
-}
-
-function scriptJob(
-  scripts: Record<string, string>,
-  scriptName: string,
-  source: ToolSignal["source"],
-  commandLabel: string
-): EvidenceJob | null {
-  return scripts[scriptName] ? { scriptName, source, commandLabel } : null;
+    { scriptName: "typecheck", source: "typescript", commandLabel: "npm run typecheck" },
+    { scriptName: "lint", source: "eslint", commandLabel: "npm run lint" },
+    { scriptName: "test", source: "test", commandLabel: "npm run test" },
+    { scriptName: "semgrep", source: "semgrep", commandLabel: "npm run semgrep" },
+    { scriptName: "secret-scan", source: "secret-scan", commandLabel: "npm run secret-scan" },
+    { scriptName: "gitleaks", source: "secret-scan", commandLabel: "npm run gitleaks" }
+  ];
 }
 
 function parseJobOutput(
@@ -162,6 +189,59 @@ function createFailureSignal(
     evidence: evidence ? [evidence] : [message],
     command: job.commandLabel
   };
+}
+
+function createSkippedJobReport(job: EvidenceJob): ToolEvidenceJobReport {
+  return {
+    source: job.source,
+    scriptName: job.scriptName,
+    commandLabel: job.commandLabel,
+    status: "skipped",
+    rawSignalCount: 0,
+    relatedSignalCount: 0,
+    message: `${job.commandLabel} was skipped because package.json does not define script "${job.scriptName}".`
+  };
+}
+
+function createCompletedJobReport(
+  job: EvidenceJob,
+  output: ToolEvidenceRunnerOutput,
+  rawSignalCount: number,
+  relatedSignalCount: number
+): ToolEvidenceJobReport {
+  const status: ToolEvidenceJobStatus = output.timedOut
+    ? "timed_out"
+    : output.exitCode === 0
+      ? "passed"
+      : "failed";
+
+  return {
+    source: job.source,
+    scriptName: job.scriptName,
+    commandLabel: job.commandLabel,
+    status,
+    exitCode: output.exitCode,
+    rawSignalCount,
+    relatedSignalCount,
+    message: summarizeJobMessage(job, output, rawSignalCount, relatedSignalCount)
+  };
+}
+
+function summarizeJobMessage(
+  job: EvidenceJob,
+  output: ToolEvidenceRunnerOutput,
+  rawSignalCount: number,
+  relatedSignalCount: number
+): string {
+  if (output.timedOut) {
+    return `${job.commandLabel} timed out after producing ${rawSignalCount} signal(s), ${relatedSignalCount} related to changed files.`;
+  }
+
+  if (output.exitCode !== 0) {
+    return `${job.commandLabel} failed with exit code ${output.exitCode ?? "unknown"} and produced ${rawSignalCount} signal(s), ${relatedSignalCount} related to changed files.`;
+  }
+
+  return `${job.commandLabel} passed and produced ${rawSignalCount} signal(s), ${relatedSignalCount} related to changed files.`;
 }
 
 async function readPackageJson(repoRoot: string): Promise<PackageJson> {

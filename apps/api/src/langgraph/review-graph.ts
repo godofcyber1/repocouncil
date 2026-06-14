@@ -27,6 +27,7 @@ export type ReviewGraphInput = {
   changedFiles?: ReviewGraphFile[];
   repositoryFiles?: RepositoryFileContext[];
   toolSignals?: ToolSignal[];
+  toolEvidenceJobs?: ToolEvidenceJobSummary[];
 };
 
 export type ReviewGraphFile = {
@@ -40,8 +41,20 @@ export type ReviewGraphContext = {
   repoGuidelines: RepositoryFileContext[];
   relatedFiles: RepositoryFileContext[];
   toolSignals: ToolSignal[];
+  toolEvidenceJobs: ToolEvidenceJobSummary[];
   reviewFocus: string[];
   riskHints: RiskHint[];
+};
+
+export type ToolEvidenceJobSummary = {
+  source: ToolSignal["source"];
+  scriptName: string;
+  commandLabel: string;
+  status: "skipped" | "passed" | "failed" | "timed_out";
+  exitCode?: number | null;
+  rawSignalCount: number;
+  relatedSignalCount: number;
+  message: string;
 };
 
 export type RiskHint = {
@@ -234,6 +247,7 @@ function createContextBuilderNode() {
     const changedFiles = state.input.changedFiles ?? [];
     const repositoryFiles = state.input.repositoryFiles ?? [];
     const toolSignals = state.input.toolSignals ?? [];
+    const toolEvidenceJobs = state.input.toolEvidenceJobs ?? [];
     const changedPaths = new Set(changedFiles.map((file) => file.path));
     const context: ReviewGraphContext = {
       changedFiles,
@@ -243,6 +257,7 @@ function createContextBuilderNode() {
         (file) => file.role !== "guideline" && isRelatedRepositoryFile(file, changedPaths)
       ),
       toolSignals: toolSignals.filter((signal) => isRelatedToolSignal(signal, changedPaths)),
+      toolEvidenceJobs,
       reviewFocus: buildReviewFocus(changedFiles, repositoryFiles, toolSignals),
       riskHints: []
     };
@@ -252,7 +267,7 @@ function createContextBuilderNode() {
       trace: [
         {
           node: "context_builder",
-          message: `Prepared context for ${context.changedFiles.length} changed file(s).`
+          message: `Prepared context for ${context.changedFiles.length} changed file(s), ${context.toolSignals.length} tool signal(s), and ${context.toolEvidenceJobs.length} tool evidence job(s).`
         }
       ]
     };

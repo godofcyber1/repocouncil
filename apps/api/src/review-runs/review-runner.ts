@@ -4,7 +4,7 @@ import { config } from "../config/env.js";
 import { fetchGitHubRepositoryContext } from "../context/github-repo-context.js";
 import { discoverRepositoryContext } from "../context/repo-context.js";
 import { prisma } from "../db/prisma.js";
-import { collectToolEvidence } from "../evidence/tool-evidence-runtime.js";
+import { collectToolEvidenceReport } from "../evidence/tool-evidence-runtime.js";
 import { OctokitGitHubClient, type GitHubClient } from "../github/github-client.js";
 import {
   runReviewGraph,
@@ -108,14 +108,14 @@ export async function executeReviewRun(
           headSha: reviewRun.headSha,
           changedFiles
         });
-    const toolSignals =
+    const toolEvidenceReport =
       repositoryRoot && enableToolEvidenceRuntime
-        ? await collectToolEvidence({
+        ? await collectToolEvidenceReport({
             repoRoot: repositoryRoot,
             changedFiles,
             timeoutMs: config.toolEvidenceTimeoutMs
           })
-        : [];
+        : { signals: [], jobs: [] };
     const graphInput: ReviewGraphInput = {
       reviewRunId: reviewRun.id,
       repository: reviewRun.pullRequest.repository.fullName,
@@ -124,7 +124,8 @@ export async function executeReviewRun(
       mode: reviewRun.mode === "BASELINE" ? "baseline" : "council",
       changedFiles,
       repositoryFiles,
-      toolSignals
+      toolSignals: toolEvidenceReport.signals,
+      toolEvidenceJobs: toolEvidenceReport.jobs
     };
     const graphResult = await runReviewGraph(
       graphInput,
@@ -421,6 +422,12 @@ function summarizeContextForTrace(context: ReviewGraphResult["context"]) {
       source: signal.source,
       kind: signal.kind,
       file: signal.file
+    })),
+    toolEvidenceJobs: context.toolEvidenceJobs.map((job) => ({
+      source: job.source,
+      scriptName: job.scriptName,
+      status: job.status,
+      relatedSignalCount: job.relatedSignalCount
     })),
     riskHints: context.riskHints.map((hint) => ({
       id: hint.id,

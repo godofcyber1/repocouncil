@@ -233,7 +233,9 @@ function summarizeTraceOutput(agent: string, output: unknown): string {
   if (agent === "context_builder" && Array.isArray(record.changedFiles)) {
     return `${record.changedFiles.length} changed file(s), ${readArrayLength(
       record.repoFiles
-    )} repo context file(s), ${readArrayLength(record.toolSignals)} tool signal(s).`;
+    )} repo context file(s), ${readArrayLength(record.toolSignals)} tool signal(s), ${readArrayLength(
+      record.toolEvidenceJobs
+    )} tool job(s).`;
   }
 
   if (agent === "planner" && Array.isArray(record.tasks)) {

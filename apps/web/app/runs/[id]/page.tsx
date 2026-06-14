@@ -120,6 +120,14 @@ type ReviewContextBundle = {
     file?: string;
     message?: string;
   }>;
+  toolEvidenceJobs: Array<{
+    source?: string;
+    scriptName?: string;
+    commandLabel?: string;
+    status?: string;
+    relatedSignalCount?: number;
+    message?: string;
+  }>;
   riskHints: Array<{
     id?: string;
     kind?: string;
@@ -465,6 +473,29 @@ export default async function ReviewRunPage({ params, searchParams }: PageProps)
           )}
         </InfoPanel>
 
+        <InfoPanel title="Tool jobs" count={reviewContext?.toolEvidenceJobs.length ?? 0}>
+          {reviewContext && reviewContext.toolEvidenceJobs.length > 0 ? (
+            reviewContext.toolEvidenceJobs.map((job, index) => (
+              <div className="compactRow" key={`${job.scriptName ?? "tool"}:${index}`}>
+                <strong>{job.commandLabel ?? job.scriptName ?? job.source ?? "tool"}</strong>
+                <span>
+                  {job.status ?? "unknown"}
+                  {typeof job.relatedSignalCount === "number"
+                    ? ` · ${job.relatedSignalCount} related`
+                    : ""}
+                </span>
+              </div>
+            ))
+          ) : (
+            <div className="compactRow">
+              <strong>No tool job report</strong>
+              <span>not recorded</span>
+            </div>
+          )}
+        </InfoPanel>
+      </section>
+
+      <section className="twoColumn">
         <InfoPanel title="Agent trace" count={run.trace.length}>
           {run.trace.slice(0, 6).map((task) => (
             <div className="compactRow" key={task.id}>
@@ -794,6 +825,7 @@ function extractReviewContext(trace: ReviewRunDetail["trace"]): ReviewContextBun
     repoGuidelines: readContextFiles(output.repoGuidelines),
     relatedFiles: readContextFiles(output.relatedFiles),
     toolSignals: readToolSignals(output.toolSignals),
+    toolEvidenceJobs: readToolEvidenceJobs(output.toolEvidenceJobs),
     riskHints: readRiskHints(output.riskHints),
     reviewFocus: Array.isArray(output.reviewFocus)
       ? output.reviewFocus.filter((item): item is string => typeof item === "string")
@@ -828,6 +860,14 @@ function readToolSignals(value: unknown): ReviewContextBundle["toolSignals"] {
   return value.filter(isToolSignal);
 }
 
+function readToolEvidenceJobs(value: unknown): ReviewContextBundle["toolEvidenceJobs"] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter(isToolEvidenceJob);
+}
+
 function readRiskHints(value: unknown): ReviewContextBundle["riskHints"] {
   if (!Array.isArray(value)) {
     return [];
@@ -841,6 +881,10 @@ function isContextFile(value: unknown): value is ReviewContextBundle["repoFiles"
 }
 
 function isToolSignal(value: unknown): value is ReviewContextBundle["toolSignals"][number] {
+  return isRecord(value);
+}
+
+function isToolEvidenceJob(value: unknown): value is ReviewContextBundle["toolEvidenceJobs"][number] {
   return isRecord(value);
 }
 
