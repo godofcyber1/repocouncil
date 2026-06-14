@@ -13,7 +13,10 @@ import {
   type ReviewGraphMode
 } from "../langgraph/review-graph.js";
 import { discoverRepositoryContext } from "../context/repo-context.js";
-import { collectToolEvidence } from "../evidence/tool-evidence-runtime.js";
+import {
+  collectToolEvidenceReport,
+  type ToolEvidenceRunner
+} from "../evidence/tool-evidence-runtime.js";
 import type { ModelProvider } from "../models/model-provider.js";
 import {
   EvalGroundTruthIssueSchema,
@@ -58,6 +61,7 @@ export type LoadEvalFixturesOptions = {
   };
   repositoryRoot?: string;
   enableToolEvidenceRuntime?: boolean;
+  toolEvidenceRunner?: ToolEvidenceRunner;
 };
 
 export async function loadEvalInputFromFixtures(
@@ -95,17 +99,20 @@ export async function loadEvalInputFromFixtures(
     }
 
     const repositoryFiles = await buildRepositoryFiles(repositoryFileOptions);
-    const toolSignalOptions: Parameters<typeof buildToolSignals>[0] = {
+    const toolEvidenceOptions: Parameters<typeof buildToolEvidence>[0] = {
       changedFiles: fixture.changedFiles,
       fixtureToolSignals: fixture.toolSignals,
       enableToolEvidenceRuntime: options.enableToolEvidenceRuntime ?? false
     };
 
     if (options.repositoryRoot) {
-      toolSignalOptions.repositoryRoot = options.repositoryRoot;
+      toolEvidenceOptions.repositoryRoot = options.repositoryRoot;
+    }
+    if (options.toolEvidenceRunner) {
+      toolEvidenceOptions.toolEvidenceRunner = options.toolEvidenceRunner;
     }
 
-    const toolSignals = await buildToolSignals(toolSignalOptions);
+    const toolEvidence = await buildToolEvidence(toolEvidenceOptions);
     const graphResult = await runReviewGraph(
       {
         reviewRunId: `eval:${options.mode}:${fixtureName}`,
@@ -115,7 +122,8 @@ export async function loadEvalInputFromFixtures(
         mode: options.mode,
         changedFiles: fixture.changedFiles,
         repositoryFiles,
-        toolSignals
+        toolSignals: toolEvidence.signals,
+        toolEvidenceJobs: toolEvidence.jobs
       },
       graphDeps
     );
@@ -163,25 +171,33 @@ async function buildRepositoryFiles(options: {
   return [...byPath.values()].sort((left, right) => left.path.localeCompare(right.path));
 }
 
-async function buildToolSignals(options: {
+async function buildToolEvidence(options: {
   repositoryRoot?: string;
   changedFiles: ReviewGraphFile[];
   fixtureToolSignals: z.infer<typeof EvalFixtureToolSignalsSchema>;
   enableToolEvidenceRuntime: boolean;
+  toolEvidenceRunner?: ToolEvidenceRunner;
 }) {
   if (!options.repositoryRoot || !options.enableToolEvidenceRuntime) {
-    return options.fixtureToolSignals;
+    return {
+      signals: options.fixtureToolSignals,
+      jobs: []
+    };
   }
 
-  const runtimeSignals = await collectToolEvidence({
+  const runtimeReport = await collectToolEvidenceReport({
     repoRoot: options.repositoryRoot,
-    changedFiles: options.changedFiles
+    changedFiles: options.changedFiles,
+    ...(options.toolEvidenceRunner ? { runner: options.toolEvidenceRunner } : {})
   });
   const byId = new Map(
-    [...runtimeSignals, ...options.fixtureToolSignals].map((signal) => [signal.id, signal])
+    [...runtimeReport.signals, ...options.fixtureToolSignals].map((signal) => [signal.id, signal])
   );
 
-  return [...byId.values()];
+  return {
+    signals: [...byId.values()],
+    jobs: runtimeReport.jobs
+  };
 }
 
 export async function loadBareEvalInputFromFixtures(

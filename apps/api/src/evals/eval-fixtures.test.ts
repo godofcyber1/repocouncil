@@ -5,6 +5,11 @@ import { describe, expect, it } from "vitest";
 import { evaluateRepoCouncil } from "./eval-runner.js";
 import { loadBareEvalInputFromFixtures, loadEvalInputFromFixtures } from "./eval-fixtures.js";
 import { SeededModelProvider } from "../models/seeded-provider.js";
+import type {
+  ModelJsonRequest,
+  ModelJsonResponse,
+  ModelProvider
+} from "../models/model-provider.js";
 
 describe("loadEvalInputFromFixtures", () => {
   it("runs review graph over fixed PR fixtures and preserves structured ground truth", async () => {
@@ -101,12 +106,64 @@ describe("loadEvalInputFromFixtures", () => {
     expect(evalInput.finalFindings).toHaveLength(1);
     expect(result.matched_findings).toBe(1);
   });
+
+  it("passes runtime tool evidence job reports into fixture eval review context", async () => {
+    const fixturesDir = await createFixtureDir({ includeToolSignals: false });
+    const repositoryRoot = await fs.mkdtemp(path.join(os.tmpdir(), "repocouncil-tool-harness-"));
+    await writeFile(
+      repositoryRoot,
+      "package.json",
+      JSON.stringify({ scripts: { typecheck: "tsc --noEmit" } })
+    );
+    const modelProvider = new ToolContextRecordingProvider();
+
+    await loadEvalInputFromFixtures({
+      fixturesDir,
+      stage: "stage-tool-harness",
+      mode: "council",
+      repositoryRoot,
+      enableToolEvidenceRuntime: true,
+      toolEvidenceRunner: async () => ({
+        exitCode: 2,
+        stdout:
+          "apps/api/src/github/webhook.ts(42,13): error TS2322: Type 'string' is not assignable to type 'number'.",
+        stderr: ""
+      }),
+      modelProvider,
+      model: "recording-reviewer"
+    });
+
+    expect(modelProvider.toolEvidenceJobs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          scriptName: "typecheck",
+          status: "failed",
+          rawSignalCount: 1,
+          relatedSignalCount: 1
+        }),
+        expect.objectContaining({
+          scriptName: "semgrep",
+          status: "skipped"
+        })
+      ])
+    );
+    expect(modelProvider.toolSignals).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: "typescript",
+          file: "apps/api/src/github/webhook.ts",
+          startLine: 42
+        })
+      ])
+    );
+  });
 });
 
 async function createFixtureDir(
-  options: { includeRepositoryFiles?: boolean } = {}
+  options: { includeRepositoryFiles?: boolean; includeToolSignals?: boolean } = {}
 ): Promise<string> {
   const includeRepositoryFiles = options.includeRepositoryFiles ?? true;
+  const includeToolSignals = options.includeToolSignals ?? true;
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "repocouncil-eval-"));
   const fixtureDir = path.join(root, "01-security-webhook-fail-open");
   await fs.mkdir(fixtureDir, { recursive: true });
@@ -132,24 +189,6 @@ async function createFixtureDir(
       "utf8"
     ),
     fs.writeFile(
-      path.join(fixtureDir, "tool-signals.json"),
-      JSON.stringify([
-        {
-          id: "semgrep:apps/api/src/github/webhook.ts:42:missing-fail-closed",
-          source: "semgrep",
-          kind: "missing-fail-closed",
-          file: "apps/api/src/github/webhook.ts",
-          startLine: 42,
-          endLine: 48,
-          severity: "high",
-          message: "Invalid webhook signatures should stop request processing.",
-          evidence: ["Semgrep flagged missing fail-closed branch after signature verification."],
-          command: "semgrep --json"
-        }
-      ]),
-      "utf8"
-    ),
-    fs.writeFile(
       path.join(fixtureDir, "ground-truth.json"),
       JSON.stringify({
         id: "gt-001",
@@ -167,6 +206,29 @@ async function createFixtureDir(
       "utf8"
     )
   ];
+
+  if (includeToolSignals) {
+    writes.push(
+      fs.writeFile(
+        path.join(fixtureDir, "tool-signals.json"),
+        JSON.stringify([
+          {
+            id: "semgrep:apps/api/src/github/webhook.ts:42:missing-fail-closed",
+            source: "semgrep",
+            kind: "missing-fail-closed",
+            file: "apps/api/src/github/webhook.ts",
+            startLine: 42,
+            endLine: 48,
+            severity: "high",
+            message: "Invalid webhook signatures should stop request processing.",
+            evidence: ["Semgrep flagged missing fail-closed branch after signature verification."],
+            command: "semgrep --json"
+          }
+        ]),
+        "utf8"
+      )
+    );
+  }
 
   if (includeRepositoryFiles) {
     writes.push(
@@ -194,4 +256,40 @@ async function writeFile(repoRoot: string, relativePath: string, content: string
 
   await fs.mkdir(path.dirname(absolutePath), { recursive: true });
   await fs.writeFile(absolutePath, content, "utf8");
+}
+
+class ToolContextRecordingProvider implements ModelProvider {
+  toolEvidenceJobs: unknown[] = [];
+  toolSignals: unknown[] = [];
+
+  async generateJson<T>(request: ModelJsonRequest): Promise<ModelJsonResponse<T>> {
+    if (request.schemaName === "ReviewPlan") {
+      return {
+        data: {
+          planId: "tool-context-plan",
+          tasks: [],
+          humanGateRequired: false
+        } as T,
+        rawText: "{}"
+      };
+    }
+
+    const userMessage = request.messages.find((message) => message.role === "user");
+    const payload = userMessage ? (JSON.parse(userMessage.content) as Record<string, unknown>) : {};
+    const context = payload.context as
+      | { toolEvidenceJobs?: unknown[]; toolSignals?: unknown[] }
+      | undefined;
+
+    if (context) {
+      this.toolEvidenceJobs = context.toolEvidenceJobs ?? [];
+      this.toolSignals = context.toolSignals ?? [];
+    }
+
+    return {
+      data: {
+        findings: []
+      } as T,
+      rawText: "{}"
+    };
+  }
 }
