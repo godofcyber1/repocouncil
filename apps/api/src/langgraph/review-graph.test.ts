@@ -88,6 +88,22 @@ const ownershipAccessInput = {
   toolSignals: []
 };
 
+const docsOnlyInput = {
+  ...input,
+  changedFiles: [
+    {
+      path: "docs/release-notes.md",
+      patch: "@@ -1,2 +1,4 @@\n # Release notes\n+\n+Document the latest RepoCouncil smoke test."
+    },
+    {
+      path: "README.md",
+      patch: "@@ -10,3 +10,4 @@\n ## Usage\n+Run RepoCouncil against a pull request."
+    }
+  ],
+  repositoryFiles: [],
+  toolSignals: []
+};
+
 describe("runReviewGraph", () => {
   it("runs baseline mode with a generic reviewer", async () => {
     const result = await runReviewGraph(
@@ -267,6 +283,64 @@ describe("runReviewGraph", () => {
         })
       ])
     );
+  });
+
+  it("skips reviewer model calls for documentation-only changes", async () => {
+    const provider = new RecordingProvider();
+    const baseline = await runReviewGraph(
+      {
+        ...docsOnlyInput,
+        mode: "baseline"
+      },
+      {
+        modelProvider: provider
+      }
+    );
+
+    expect(baseline.candidateFindings).toHaveLength(0);
+    expect(baseline.findings).toHaveLength(0);
+    expect(baseline.refereeDecision).toEqual(
+      expect.objectContaining({
+        candidateCount: 0,
+        finalCount: 0
+      })
+    );
+    expect(baseline.trace).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          node: "docs_only_filter"
+        }),
+        expect.objectContaining({
+          node: "generic_reviewer",
+          message: "Skipped reviewer model call for documentation-only changes."
+        })
+      ])
+    );
+    expect(provider.requests.filter((request) => request.schemaName === "ReviewFindingList")).toHaveLength(0);
+
+    const councilProvider = new RecordingProvider();
+    const council = await runReviewGraph(
+      {
+        ...docsOnlyInput,
+        mode: "council"
+      },
+      {
+        modelProvider: councilProvider
+      }
+    );
+
+    expect(council.candidateFindings).toHaveLength(0);
+    expect(council.findings).toHaveLength(0);
+    expect(council.trace.map((event) => event.node)).toEqual(
+      expect.arrayContaining([
+        "docs_only_filter",
+        "security_reviewer",
+        "quality_reviewer",
+        "test_reviewer",
+        "deterministic_referee"
+      ])
+    );
+    expect(councilProvider.requests.filter((request) => request.schemaName === "ReviewFindingList")).toHaveLength(0);
   });
 });
 

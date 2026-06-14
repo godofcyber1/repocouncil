@@ -274,6 +274,15 @@ function createIssueDetectionPrepassNode() {
     return {
       context,
       trace: [
+        ...(isDocsOnlyChange(context.changedFiles)
+          ? [
+              {
+                node: "docs_only_filter",
+                message:
+                  "Detected documentation-only changes; reviewer model calls will be skipped to avoid noisy findings."
+              }
+            ]
+          : []),
         {
           node: "issue_detection_prepass",
           message: `Generated ${riskHints.length} risk hint(s).`
@@ -569,6 +578,18 @@ function createReviewerNode(
   model: string
 ) {
   return async (state: ReviewGraphStateType) => {
+    if (state.context && isDocsOnlyChange(state.context.changedFiles)) {
+      return {
+        candidateFindings: [],
+        trace: [
+          {
+            node: reviewerNodeName(reviewer),
+            message: "Skipped reviewer model call for documentation-only changes."
+          }
+        ]
+      };
+    }
+
     const response = await modelProvider.generateJson({
       model,
       schemaName: "ReviewFindingList",
@@ -674,6 +695,22 @@ function reviewerPrompt(reviewer: ReviewerKind): string {
 
 function reviewerNodeName(reviewer: ReviewerKind): string {
   return reviewer === "generic" ? "generic_reviewer" : `${reviewer}_reviewer`;
+}
+
+function isDocsOnlyChange(changedFiles: ReviewGraphFile[]): boolean {
+  return changedFiles.length > 0 && changedFiles.every((file) => isDocsOnlyPath(file.path));
+}
+
+function isDocsOnlyPath(filePath: string): boolean {
+  const normalized = filePath.replace(/\\/g, "/").toLowerCase();
+  const fileName = normalized.split("/").pop() ?? normalized;
+
+  return (
+    normalized.startsWith("docs/") ||
+    normalized.startsWith(".github/") && /\.(?:md|mdx|txt|rst)$/i.test(fileName) ||
+    /^(readme|changelog|contributing|code_of_conduct|security|license)(?:\.[a-z0-9_-]+)?\.(?:md|mdx|txt|rst)$/i.test(fileName) ||
+    /\.(?:md|mdx|txt|rst|adoc)$/i.test(fileName)
+  );
 }
 
 function parseModelOutput<T>(

@@ -1,0 +1,10 @@
+[
+  {
+    "path": "docs/usage.md",
+    "patch": "@@ -1,3 +1,7 @@\n # Usage\n+\n+RepoCouncil reviews pull requests and publishes high-signal findings.\n+\n+Use the dashboard to inspect reviewer traces."
+  },
+  {
+    "path": "README.md",
+    "patch": "@@ -20,3 +20,5 @@\n ## Local development\n+\n+Run the local startup script before opening the dashboard."
+  }
+]
