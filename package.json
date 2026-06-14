@@ -23,6 +23,7 @@
     "eval:p2-tools": "npm run eval:p2-tools -w @repocouncil/api",
     "eval:summary": "npm run eval:summary -w @repocouncil/api",
     "lint": "npm run lint --workspaces --if-present",
+    "publish:mock": "npm run publish:mock -w @repocouncil/api",
     "publish:review-run": "npm run publish:review-run -w @repocouncil/api --",
     "replay:webhook": "npm run replay:webhook -w @repocouncil/api",
     "rerun:review-run": "npm run rerun:review-run -w @repocouncil/api --",

@@ -15,6 +15,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "publish:mock": "tsx src/scripts/run-publish-mock.ts",
     "publish:review-run": "tsx src/scripts/publish-review-run.ts",
     "replay:webhook": "tsx src/scripts/replay-webhook.ts",
     "rerun:review-run": "tsx src/scripts/rerun-review-run.ts",
