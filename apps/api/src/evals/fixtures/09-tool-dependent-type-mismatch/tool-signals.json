@@ -1,0 +1,14 @@
+[
+  {
+    "id": "typescript:src/tool-dependent/type-mismatch.ts:8:TS2322",
+    "source": "typescript",
+    "kind": "TS2322",
+    "file": "src/tool-dependent/type-mismatch.ts",
+    "startLine": 8,
+    "endLine": 8,
+    "severity": "medium",
+    "message": "Type 'string' is not assignable to type 'number'.",
+    "evidence": ["TS2322: Type 'string' is not assignable to type 'number'."],
+    "command": "tsc --noEmit"
+  }
+]

@@ -157,6 +157,23 @@ describe("loadEvalInputFromFixtures", () => {
       ])
     );
   });
+
+  it("can ignore fixture-provided tool signals for clean ablation runs", async () => {
+    const fixturesDir = await createFixtureDir();
+    const modelProvider = new ToolContextRecordingProvider();
+
+    await loadEvalInputFromFixtures({
+      fixturesDir,
+      stage: "stage-no-fixture-tools",
+      mode: "council",
+      includeFixtureToolSignals: false,
+      modelProvider,
+      model: "recording-reviewer"
+    });
+
+    expect(modelProvider.toolSignals).toEqual([]);
+    expect(modelProvider.toolEvidenceJobs).toEqual([]);
+  });
 });
 
 async function createFixtureDir(

@@ -93,6 +93,7 @@ function parseArgs(rawArgs: string[]): {
   enable?: string;
   disable?: string;
   repoRoot?: string;
+  ignoreFixtureToolSignals?: boolean;
 } {
   const parsed: {
     stage?: string;
@@ -107,6 +108,7 @@ function parseArgs(rawArgs: string[]): {
     enable?: string;
     disable?: string;
     repoRoot?: string;
+    ignoreFixtureToolSignals?: boolean;
   } = {};
 
   for (let index = 0; index < rawArgs.length; index += 1) {
@@ -149,6 +151,8 @@ function parseArgs(rawArgs: string[]): {
     } else if (arg === "--repo-root" && value) {
       parsed.repoRoot = value;
       index += 1;
+    } else if (arg === "--ignore-fixture-tool-signals") {
+      parsed.ignoreFixtureToolSignals = true;
     }
   }
 
@@ -207,7 +211,8 @@ async function loadInput(
       modelProvider: countedProvider,
       model: resolvedProvider.model,
       models: resolvedProvider.models,
-      enableToolEvidenceRuntime: enabledCapabilities.includes("tool-evidence-runtime")
+      enableToolEvidenceRuntime: enabledCapabilities.includes("tool-evidence-runtime"),
+      includeFixtureToolSignals: !args.ignoreFixtureToolSignals
     };
 
     if (args.repoRoot) {

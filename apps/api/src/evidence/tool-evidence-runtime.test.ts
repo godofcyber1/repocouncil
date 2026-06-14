@@ -48,7 +48,7 @@ describe("collectToolEvidence", () => {
       runner
     });
 
-    expect(calls).toEqual(["run typecheck", "run lint"]);
+    expect(calls).toEqual(["--silent run typecheck", "--silent run lint"]);
     expect(signals).toEqual([
       expect.objectContaining({
         source: "typescript",

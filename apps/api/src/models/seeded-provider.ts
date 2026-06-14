@@ -176,6 +176,32 @@ function createSeededFindings(request: ReviewerRequestContext): ReviewFinding[] 
 
   if (
     reviewer === "quality" &&
+    changedFiles.some((file) => file.path === "src/tool-dependent/type-mismatch.ts") &&
+    toolSignals.some(
+      (signal) => signal.kind === "TS2322" && signal.file === "src/tool-dependent/type-mismatch.ts"
+    )
+  ) {
+    findings.push({
+      id: "seeded-tool-dependent-type-mismatch",
+      title: "Changed return value violates the TypeScript contract",
+      body:
+        "The changed function now returns a string where the TypeScript contract requires a number. This is only visible when typecheck evidence is available.",
+      file: "src/tool-dependent/type-mismatch.ts",
+      startLine: 7,
+      endLine: 10,
+      severity: "medium",
+      confidence: 0.9,
+      category: "correctness",
+      evidence: [
+        "TypeScript reported TS2322 on the changed return value.",
+        ...signalEvidence(toolSignals, "src/tool-dependent/type-mismatch.ts")
+      ],
+      suggestedPatch: "Return a number that satisfies the declared function contract, or update the type if the API contract intentionally changed."
+    });
+  }
+
+  if (
+    reviewer === "quality" &&
     changedFiles.some(
       (file) =>
         file.path === "apps/api/src/github/webhook-router.ts" &&

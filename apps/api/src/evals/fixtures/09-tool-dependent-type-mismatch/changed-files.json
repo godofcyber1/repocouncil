@@ -1,0 +1,6 @@
+[
+  {
+    "path": "src/tool-dependent/type-mismatch.ts",
+    "patch": "@@ -4,7 +4,7 @@ export type ScoreSummary = {\n export function calculateScore(input: ScoreSummary): number {\n-  return input.total;\n+  return input.label;\n }"
+  }
+]

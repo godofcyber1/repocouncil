@@ -1,0 +1,7 @@
+[
+  {
+    "path": "package.json",
+    "role": "config",
+    "summary": "The project uses TypeScript typecheck as a required correctness gate."
+  }
+]

@@ -62,6 +62,7 @@ export type LoadEvalFixturesOptions = {
   repositoryRoot?: string;
   enableToolEvidenceRuntime?: boolean;
   toolEvidenceRunner?: ToolEvidenceRunner;
+  includeFixtureToolSignals?: boolean;
 };
 
 export async function loadEvalInputFromFixtures(
@@ -101,7 +102,8 @@ export async function loadEvalInputFromFixtures(
     const repositoryFiles = await buildRepositoryFiles(repositoryFileOptions);
     const toolEvidenceOptions: Parameters<typeof buildToolEvidence>[0] = {
       changedFiles: fixture.changedFiles,
-      fixtureToolSignals: fixture.toolSignals,
+      fixtureToolSignals:
+        options.includeFixtureToolSignals === false ? [] : fixture.toolSignals,
       enableToolEvidenceRuntime: options.enableToolEvidenceRuntime ?? false
     };
 

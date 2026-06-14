@@ -92,7 +92,7 @@ export async function collectToolEvidenceReport(
 
     const output = await runner({
       command: npmCommand(),
-      args: ["run", job.scriptName],
+      args: ["--silent", "run", job.scriptName],
       cwd: options.repoRoot,
       timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS
     });
@@ -252,10 +252,27 @@ async function readPackageJson(repoRoot: string): Promise<PackageJson> {
 
 function runCommand(input: ToolEvidenceRunnerInput): Promise<ToolEvidenceRunnerOutput> {
   return new Promise((resolve) => {
-    const child = spawn(input.command, input.args, {
-      cwd: input.cwd,
-      windowsHide: true
-    });
+    const command = process.platform === "win32" ? "cmd.exe" : input.command;
+    const args =
+      process.platform === "win32"
+        ? ["/d", "/s", "/c", buildWindowsCommandLine(input.command, input.args)]
+        : input.args;
+    let child;
+
+    try {
+      child = spawn(command, args, {
+        cwd: input.cwd,
+        windowsHide: true
+      });
+    } catch (error) {
+      resolve({
+        exitCode: null,
+        stdout: "",
+        stderr: error instanceof Error ? error.message : "Failed to start tool command."
+      });
+      return;
+    }
+
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     let timedOut = false;
@@ -299,4 +316,16 @@ function normalizePath(value: string): string {
 
 function npmCommand(): string {
   return process.platform === "win32" ? "npm.cmd" : "npm";
+}
+
+function buildWindowsCommandLine(command: string, args: string[]): string {
+  return [command, ...args].map(quoteWindowsArg).join(" ");
+}
+
+function quoteWindowsArg(value: string): string {
+  if (!/[\s"]/u.test(value)) {
+    return value;
+  }
+
+  return `"${value.replace(/"/g, '\\"')}"`;
 }

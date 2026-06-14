@@ -1,0 +1,19 @@
+{
+  "id": "gt-009",
+  "title": "Changed return value violates TypeScript contract",
+  "category": "correctness",
+  "severity": "medium",
+  "file": "src/tool-dependent/type-mismatch.ts",
+  "lineRange": [7, 10],
+  "expectedSignals": [
+    "TS2322",
+    "TypeScript",
+    "string",
+    "number",
+    "contract"
+  ],
+  "mustBeDetectedBy": ["tool-evidence-runtime"],
+  "acceptableCategories": ["correctness", "quality"],
+  "acceptableSeverities": ["medium", "high"],
+  "explanation": "The diff changes a function declared to return number so it returns a string field. The seeded reviewer should only detect this when typecheck evidence is available."
+}
