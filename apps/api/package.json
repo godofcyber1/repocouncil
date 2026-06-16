@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "dashboard:mock": "tsx src/scripts/run-dashboard-mock.ts",
     "dev": "tsx watch src/server.ts",
     "execute:review-run": "tsx src/scripts/execute-review-run.ts",
     "eval": "tsx src/scripts/run-eval.ts",

@@ -242,12 +242,12 @@ function summarizeTraceOutput(agent: string, output: unknown): string {
     return `${record.tasks.length} planned review task(s).`;
   }
 
-  if (typeof record.message === "string") {
-    return record.message;
-  }
-
   if (typeof record.code === "string" && typeof record.message === "string") {
     return `${record.code}: ${record.message}`;
+  }
+
+  if (typeof record.message === "string") {
+    return record.message;
   }
 
   return `${Object.keys(record).length} output field(s) recorded.`;
