@@ -257,6 +257,8 @@ For Qwen / Alibaba Cloud Model Studio setup notes, see [docs/public/qwen-configu
 
 For local typecheck, lint, Semgrep, and Gitleaks evidence setup, see [docs/public/tool-evidence.md](./docs/public/tool-evidence.md).
 
+For deployment readiness notes, see [docs/public/deployment-readiness.md](./docs/public/deployment-readiness.md).
+
 ## GitHub App Setup
 
 Live publishing requires a GitHub App installed on the target repository.
@@ -281,6 +283,12 @@ DASHBOARD_BASE_URL=http://127.0.0.1:3100
 Do not commit `.env`, private keys, tokens, or local deployment notes.
 
 ## Common Commands
+
+Check deployment readiness:
+
+```bash
+npm run deploy:check
+```
 
 Validate the webhook fixture without writing to the database:
 

@@ -1,12 +1,7 @@
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { loadEvalInputFromFixtures } from "../evals/eval-fixtures.js";
 import { evaluateRepoCouncil, type EvalResult } from "../evals/eval-runner.js";
-import {
-  collectToolEvidenceReport,
-  type ToolEvidenceRunner
-} from "../evidence/tool-evidence-runtime.js";
 import type { ModelJsonRequest, ModelJsonResponse, ModelProvider } from "../models/model-provider.js";
 import { SeededModelProvider } from "../models/seeded-provider.js";
 
@@ -28,9 +23,8 @@ class CountingModelProvider implements ModelProvider {
 }
 
 type FixedVariant = {
-  name: "baseline" | "full-council" | "council-tools";
+  name: "baseline" | "full-council";
   mode: "baseline" | "council";
-  enableToolEvidenceRuntime: boolean;
   enabledCapabilities: string[];
   disabledCapabilities: string[];
 };
@@ -38,124 +32,57 @@ type FixedVariant = {
 const repoRoot = path.resolve("../..");
 const fixturesDir = path.join(repoRoot, "apps/api/src/evals/fixtures");
 const outputDir = path.join(repoRoot, "docs/private/eval-results");
+const summaryPath = path.join(repoRoot, "docs/private/eval-summary.md");
 const reportDir = path.join(repoRoot, "docs/private/milestone-test-reports");
-const stage = "p3-fixed-eval";
-const baselineVariant: FixedVariant = {
-  name: "baseline",
-  mode: "baseline",
-  enableToolEvidenceRuntime: false,
-  enabledCapabilities: ["baseline", "repo-context", "deterministic-referee"],
-  disabledCapabilities: ["council", "fixture-tool-signals", "tool-evidence-runtime"]
-};
-const councilVariant: FixedVariant = {
-  name: "full-council",
-  mode: "council",
-  enableToolEvidenceRuntime: false,
-  enabledCapabilities: ["council", "repo-context", "deterministic-referee"],
-  disabledCapabilities: ["fixture-tool-signals", "tool-evidence-runtime"]
-};
-const councilToolsVariant: FixedVariant = {
-  name: "council-tools",
-  mode: "council",
-  enableToolEvidenceRuntime: true,
-  enabledCapabilities: [
-    "council",
-    "repo-context",
-    "deterministic-referee",
-    "tool-evidence-runtime"
-  ],
-  disabledCapabilities: ["fixture-tool-signals"]
-};
-
-const syntheticToolRunner: ToolEvidenceRunner = async (input) => {
-  const scriptName = input.args[input.args.length - 1];
-
-  if (scriptName === "typecheck") {
-    return {
-      exitCode: 2,
-      stdout: [
-        "apps/api/src/review-runs/review-run-service.ts(91,13): error TS2322: Type 'string' is not assignable to type 'number'.",
-        "src/tool-dependent/type-mismatch.ts(8,3): error TS2322: Type 'string' is not assignable to type 'number'."
-      ].join("\n"),
-      stderr: ""
-    };
+const reportPath = path.join(reportDir, "p3-locked-fixed-eval.md");
+const stage = "locked-fixed-eval";
+const variants: FixedVariant[] = [
+  {
+    name: "baseline",
+    mode: "baseline",
+    enabledCapabilities: ["single-generic-reviewer", "repo-context", "deterministic-referee"],
+    disabledCapabilities: ["council", "risk-hints", "tool-evidence-runtime", "fixture-tool-signals"]
+  },
+  {
+    name: "full-council",
+    mode: "council",
+    enabledCapabilities: ["council", "repo-context", "risk-hints", "deterministic-referee"],
+    disabledCapabilities: ["tool-evidence-runtime", "fixture-tool-signals"]
   }
+];
 
-  if (scriptName === "semgrep") {
-    return {
-      exitCode: 1,
-      stdout: JSON.stringify({
-        results: [
-          {
-            check_id: "typescript.express.security.audit.missing-fail-closed",
-            path: "apps/api/src/github/webhook.ts",
-            start: { line: 42 },
-            end: { line: 48 },
-            extra: {
-              message: "Invalid webhook signatures should stop request processing.",
-              severity: "ERROR"
-            }
-          }
-        ]
-      }),
-      stderr: ""
-    };
-  }
-
-  return {
-    exitCode: 0,
-    stdout: "",
-    stderr: ""
-  };
-};
+const selectedMode = parseMode(process.argv.slice(2));
+const selectedVariants =
+  selectedMode === "both"
+    ? variants
+    : variants.filter((variant) => variant.name === selectedMode);
 
 await fs.mkdir(outputDir, { recursive: true });
 await fs.mkdir(reportDir, { recursive: true });
 
-const syntheticRepoRoot = await createSyntheticToolRepo();
+const results: EvalResult[] = [];
 
-try {
-  const toolEvidencePreview = await collectToolEvidenceReport({
-    repoRoot: syntheticRepoRoot,
-    changedFiles: [
-      { path: "apps/api/src/github/webhook.ts" },
-      { path: "apps/api/src/review-runs/review-run-service.ts" },
-      { path: "src/tool-dependent/type-mismatch.ts" }
-    ],
-    runner: syntheticToolRunner
-  });
-  const baseline = await runVariant(baselineVariant, syntheticRepoRoot);
-  const council = await runVariant(councilVariant, syntheticRepoRoot);
-  const councilTools = await runVariant(councilToolsVariant, syntheticRepoRoot);
-  const results = [baseline, council, councilTools];
-
-  const reportPath = path.join(reportDir, "p3-fixed-eval.md");
-  await fs.writeFile(
-    reportPath,
-    renderReport({ baseline, council, councilTools, toolJobCount: toolEvidencePreview.jobs.length }),
-    "utf8"
-  );
-
-  console.log(
-    JSON.stringify(
-      {
-        outputDir,
-        reportPath,
-        results,
-        deltas: {
-          council_vs_baseline: delta(baseline, council),
-          tools_vs_council: delta(council, councilTools)
-        }
-      },
-      null,
-      2
-    )
-  );
-} finally {
-  await fs.rm(syntheticRepoRoot, { recursive: true, force: true });
+for (const variant of selectedVariants) {
+  results.push(await runVariant(variant));
 }
 
-async function runVariant(variant: FixedVariant, repositoryRoot: string): Promise<EvalResult> {
+await fs.writeFile(summaryPath, renderSummary(results), "utf8");
+await fs.writeFile(reportPath, renderReport(results), "utf8");
+
+console.log(
+  JSON.stringify(
+    {
+      outputDir,
+      summaryPath,
+      reportPath,
+      results
+    },
+    null,
+    2
+  )
+);
+
+async function runVariant(variant: FixedVariant): Promise<EvalResult> {
   const startedAt = Date.now();
   const provider = new CountingModelProvider(new SeededModelProvider());
   const input = await loadEvalInputFromFixtures({
@@ -166,12 +93,10 @@ async function runVariant(variant: FixedVariant, repositoryRoot: string): Promis
     variant: variant.name,
     enabledCapabilities: variant.enabledCapabilities,
     disabledCapabilities: variant.disabledCapabilities,
-    repositoryRoot,
-    enableToolEvidenceRuntime: variant.enableToolEvidenceRuntime,
-    toolEvidenceRunner: syntheticToolRunner,
-    includeFixtureToolSignals: false,
     modelProvider: provider,
-    model: "seeded-reviewer"
+    model: "seeded-reviewer",
+    includeFixtureToolSignals: false,
+    enableToolEvidenceRuntime: false
   });
   input.metadata = {
     ...input.metadata,
@@ -181,118 +106,138 @@ async function runVariant(variant: FixedVariant, repositoryRoot: string): Promis
     outputTokens: provider.outputTokens
   };
   const result = evaluateRepoCouncil(input);
-  const outputPath = path.join(outputDir, `${stage}-${variant.name}.json`);
+  const outputPath = path.join(outputDir, `${variant.name}.json`);
 
   await fs.writeFile(outputPath, `${JSON.stringify(result, null, 2)}\n`, "utf8");
 
   return result;
 }
 
-function delta(left: EvalResult, right: EvalResult) {
-  return {
-    strict_recall: right.strict_recall - left.strict_recall,
-    loose_recall: right.loose_recall - left.loose_recall,
-    precision: right.precision - left.precision,
-    noise_rate: right.noise_rate - left.noise_rate,
-    actionability_rate: right.actionability_rate - left.actionability_rate,
-    repocouncil_score: right.repocouncil_score - left.repocouncil_score
-  };
+function parseMode(rawArgs: string[]): "baseline" | "full-council" | "both" {
+  const modeIndex = rawArgs.indexOf("--mode");
+  const mode = modeIndex >= 0 ? rawArgs[modeIndex + 1] : "both";
+
+  if (mode === "baseline" || mode === "full-council" || mode === "both") {
+    return mode;
+  }
+
+  throw new Error(`Unsupported fixed eval mode "${mode}". Use baseline, full-council, or both.`);
 }
 
-function renderReport(input: {
-  baseline: EvalResult;
-  council: EvalResult;
-  councilTools: EvalResult;
-  toolJobCount: number;
-}): string {
-  const results = [input.baseline, input.council, input.councilTools];
+function renderSummary(results: EvalResult[]): string {
+  const baseline = results.find((result) => result.variant === "baseline");
+  const council = results.find((result) => result.variant === "full-council");
   const lines = [
-    "# P3 Fixed Evaluation Report",
+    "# RepoCouncil Fixed Eval Summary",
     "",
     `Generated at: ${new Date().toISOString()}`,
     "",
-    "Scope:",
-    "- Fixed seeded fixture set.",
-    "- Fixture-provided tool signals disabled.",
-    "- Synthetic runtime tool evidence enabled only for `council-tools`.",
-    `- Runtime tool job count in preview: ${input.toolJobCount}.`,
+    "## Overall Result",
     "",
-    "## Results",
+    "| Mode | Strict Recall | Loose Recall | Precision | Noise Rate | Duplicate Reduction | Actionability |",
+    "|---|---:|---:|---:|---:|---:|---:|",
+    ...results.map(
+      (result) =>
+        `| ${result.variant} | ${format(result.strict_recall)} | ${format(result.loose_recall)} | ${format(result.precision)} | ${format(result.noise_rate)} | ${format(result.duplicate_reduction_rate)} | ${format(result.actionability_rate)} |`
+    ),
     "",
-    "| Variant | Mode | Fixtures | Candidates | Final | Strict Recall | Loose Recall | Precision | Noise | Actionability | Score |",
-    "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
-    ...results.map(resultReportRow),
+    "## Referee Behavior",
     "",
-    "## Deltas",
+    "| Mode | Candidates | Final | Accepted | Merged | Rejected |",
+    "|---|---:|---:|---:|---:|---:|",
+    ...results.map(
+      (result) =>
+        `| ${result.variant} | ${result.candidate_findings} | ${result.final_findings} | ${result.accepted_candidates} | ${result.merged_candidates} | ${result.rejected_candidates} |`
+    ),
     "",
-    `- Full Council vs baseline strict recall delta: ${formatDelta(delta(input.baseline, input.council).strict_recall)}.`,
-    `- Council + tools vs Full Council strict recall delta: ${formatDelta(delta(input.council, input.councilTools).strict_recall)}.`,
-    `- Council + tools precision delta: ${formatDelta(delta(input.council, input.councilTools).precision)}.`,
+    "## Known Weaknesses",
     "",
-    "## Takeaways",
+    "- Category calibration for input validation still needs repeated monitoring.",
+    "- Tool-evidence and publish-stage evaluation are intentionally outside this fixed local pass.",
+    "- Do not claim Council is better unless loose recall improves without increasing noise.",
     "",
-    "- Council mode should improve coverage through specialized reviewers and deterministic referee merging.",
-    "- Runtime tool evidence should recover tool-dependent defects without increasing noise.",
-    "- This report is local/private and should not be committed."
+    "## Current Verdict",
+    "",
+    baseline && council
+      ? verdict(baseline, council)
+      : "- Baseline/full-council comparison is partial because only one mode was run.",
+    "",
+    "## Referee Stress",
+    "",
+    council
+      ? refereeStressVerdict(council)
+      : "- Referee stress result is unavailable because full-council was not run.",
+    ""
   ];
 
   return `${lines.join("\n")}\n`;
 }
 
-function resultReportRow(result: EvalResult): string {
+function renderReport(results: EvalResult[]): string {
   return [
-    result.variant,
-    result.mode,
-    result.fixture_count,
-    result.candidate_findings,
-    result.final_findings,
-    formatNumber(result.strict_recall),
-    formatNumber(result.loose_recall),
-    formatNumber(result.precision),
-    formatNumber(result.noise_rate),
-    formatNumber(result.actionability_rate),
-    formatNumber(result.repocouncil_score)
-  ]
-    .map((value) => ` ${String(value)} `)
-    .join("|")
-    .replace(/^/, "|")
-    .replace(/$/, "|");
+    "# P3 Locked Fixed Evaluation Report",
+    "",
+    `Generated at: ${new Date().toISOString()}`,
+    "",
+    "Scope:",
+    "- Locked local fixture set.",
+    "- Baseline: single generic reviewer, no risk hints, no fixture tool signals.",
+    "- Full Council: security/quality/test fan-out, risk hints, deterministic referee.",
+    "- Referee stress fixtures cover false-positive rejection, category calibration, and summary-level fallback for imprecise lines.",
+    "- Tool-evidence runtime and fixture-provided tool signals are disabled in this pass.",
+    "",
+    "Validation output:",
+    "",
+    "| Variant | Fixtures | Candidates | Final | Strict Recall | Loose Recall | Precision | Noise | Duplicate Reduction | Actionability |",
+    "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ...results.map(
+      (result) =>
+        `| ${result.variant} | ${result.fixture_count} | ${result.candidate_findings} | ${result.final_findings} | ${format(result.strict_recall)} | ${format(result.loose_recall)} | ${format(result.precision)} | ${format(result.noise_rate)} | ${format(result.duplicate_reduction_rate)} | ${format(result.actionability_rate)} |`
+    ),
+    "",
+    "This report is local/private and should not be committed.",
+    ""
+  ].join("\n");
 }
 
-function formatDelta(value: number): string {
-  const prefix = value > 0 ? "+" : "";
+function verdict(baseline: EvalResult, council: EvalResult): string {
+  const checks = [
+    council.loose_recall > baseline.loose_recall
+      ? "Council loose recall is higher than baseline."
+      : "Council loose recall is not higher than baseline.",
+    council.final_findings > 0
+      ? "Council final findings are non-empty."
+      : "Council final findings are empty.",
+    council.noise_rate <= baseline.noise_rate
+      ? "Council noise rate does not exceed baseline."
+      : "Council noise rate exceeds baseline.",
+    council.duplicate_reduction_rate > 0
+      ? "Council duplicate reduction is positive."
+      : "Council duplicate reduction is not positive."
+  ];
 
-  return `${prefix}${formatNumber(value)}`;
+  return checks.map((check) => `- ${check}`).join("\n");
 }
 
-function formatNumber(value: number): string {
+function refereeStressVerdict(council: EvalResult): string {
+  const checks = [
+    council.rejected_candidates > 0
+      ? "Referee rejection is exercised by the locked fixture set."
+      : "Referee rejection is not exercised by this fixture set.",
+    council.noise_rate === 0
+      ? "Rejected false positives do not leak into final findings."
+      : "Some final findings remain unmatched and should be inspected.",
+    council.duplicate_reduction_rate > 0
+      ? "Duplicate/companion reduction is positive."
+      : "Duplicate/companion reduction is not yet visible.",
+    council.strict_recall > 0 && council.loose_recall > council.strict_recall
+      ? "Loose recall exceeds strict recall, which indicates summary-level or suggested-test matches are being counted separately from exact line matches."
+      : "Loose recall does not exceed strict recall."
+  ];
+
+  return checks.map((check) => `- ${check}`).join("\n");
+}
+
+function format(value: number): string {
   return Number.isInteger(value) ? value.toString() : value.toFixed(4);
-}
-
-async function createSyntheticToolRepo(): Promise<string> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "repocouncil-p3-fixed-eval-"));
-
-  await writeFile(
-    root,
-    "package.json",
-    JSON.stringify(
-      {
-        scripts: {
-          typecheck: "node scripts/typecheck.cjs",
-          semgrep: "node scripts/semgrep.cjs"
-        }
-      },
-      null,
-      2
-    )
-  );
-
-  return root;
-}
-
-async function writeFile(repoRoot: string, relativePath: string, content: string) {
-  const absolutePath = path.join(repoRoot, relativePath);
-
-  await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-  await fs.writeFile(absolutePath, content, "utf8");
 }

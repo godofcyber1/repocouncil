@@ -1,0 +1,6 @@
+[
+  {
+    "path": "apps/api/src/github/webhook.ts",
+    "patch": "@@ -42,6 +42,10 @@ export async function handleWebhook(req, res) {\n+  if (!validSignature) {\n+    metrics.increment('webhook.invalid_signature');\n+    return res.status(401).json({ error: 'invalid signature' });\n+  }\n }"
+  }
+]

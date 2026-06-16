@@ -1,0 +1,7 @@
+{
+  "id": "R2",
+  "title": "Webhook signature false positive on normal API route",
+  "category": "referee",
+  "locked": true,
+  "stress": true
+}

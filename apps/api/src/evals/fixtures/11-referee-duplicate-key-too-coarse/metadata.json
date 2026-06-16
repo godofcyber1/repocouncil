@@ -1,0 +1,6 @@
+{
+  "id": "C2",
+  "title": "Duplicate key too coarse",
+  "category": "correctness",
+  "locked": true
+}

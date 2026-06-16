@@ -280,6 +280,30 @@ function createIssueDetectionPrepassNode() {
       throw new Error("Issue detection prepass requires context.");
     }
 
+    if (state.input.mode === "baseline") {
+      return {
+        context: {
+          ...state.context,
+          riskHints: []
+        },
+        trace: [
+          ...(isDocsOnlyChange(state.context.changedFiles)
+            ? [
+                {
+                  node: "docs_only_filter",
+                  message:
+                    "Detected documentation-only changes; reviewer model calls will be skipped to avoid noisy findings."
+                }
+              ]
+            : []),
+          {
+            node: "issue_detection_prepass",
+            message: "Skipped risk hints for baseline mode."
+          }
+        ]
+      };
+    }
+
     const riskHints = generateRiskHints(state.context);
     const context: ReviewGraphContext = {
       ...state.context,

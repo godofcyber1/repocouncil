@@ -1,0 +1,25 @@
+{
+  "issues": [
+    {
+      "id": "gt-s2",
+      "title": "Secret token is logged",
+      "category": "security",
+      "severity": "high",
+      "file": "src/auth/token.ts",
+      "lineRange": {
+        "start": 10,
+        "end": 16
+      },
+      "expectedSignals": [
+        "token",
+        "console.log",
+        "secret",
+        "credential",
+        "log"
+      ],
+      "acceptableCategories": ["security"],
+      "acceptableSeverities": ["medium", "high", "critical"],
+      "explanation": "Authentication tokens are secrets and should not be written to application logs."
+    }
+  ]
+}

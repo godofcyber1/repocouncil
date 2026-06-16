@@ -1,7 +1,19 @@
 import { z } from "zod";
+import { calculateEvalMetrics } from "./metrics.js";
 
 const SeveritySchema = z.enum(["critical", "high", "medium", "low", "info"]);
 const EvalExperimentKindSchema = z.enum(["stage", "ablation"]);
+const EvalLineRangeSchema = z
+  .union([
+    z.tuple([z.number().int().positive(), z.number().int().positive()]),
+    z.object({
+      start: z.number().int().positive(),
+      end: z.number().int().positive()
+    })
+  ])
+  .transform((lineRange) =>
+    Array.isArray(lineRange) ? lineRange : ([lineRange.start, lineRange.end] as [number, number])
+  );
 
 export const EvalGroundTruthIssueSchema = z.object({
   id: z.string().min(1),
@@ -9,7 +21,7 @@ export const EvalGroundTruthIssueSchema = z.object({
   category: z.string().min(1),
   severity: SeveritySchema,
   file: z.string().min(1),
-  lineRange: z.tuple([z.number().int().positive(), z.number().int().positive()]),
+  lineRange: EvalLineRangeSchema,
   expectedSignals: z.array(z.string()).default([]),
   mustBeDetectedBy: z.array(z.string()).default([]),
   acceptableCategories: z.array(z.string()).default([]),
@@ -106,34 +118,14 @@ export type EvalResult = {
   repocouncil_score: number;
 };
 
-type Match = {
-  issue: EvalGroundTruthIssue;
-  finding: EvalFinding;
-};
-
 export function evaluateRepoCouncil(input: unknown): EvalResult {
   const parsed = EvalInputSchema.parse(input);
-  const matches = matchFindings(parsed.groundTruth, parsed.finalFindings);
-  const looseMatches = matchFindingsLoose(parsed.groundTruth, [
-    ...parsed.finalFindings,
-    ...parsed.candidateFindings
-  ]);
-  const matchedFindingIds = new Set(matches.map((match) => match.finding.id));
-  const falsePositiveCount = parsed.finalFindings.filter(
-    (finding) => !matchedFindingIds.has(finding.id)
-  ).length;
-  const precision = safeDivide(matches.length, parsed.finalFindings.length);
-  const recall = safeDivide(matches.length, parsed.groundTruth.length);
-  const categoryRecall = {
-    security: calculateCategoryRecall(parsed.groundTruth, matches, "security"),
-    correctness: calculateCategoryRecall(parsed.groundTruth, matches, "correctness"),
-    testing: calculateCategoryRecall(parsed.groundTruth, matches, "testing")
-  };
-  const actionabilityRate = calculateActionabilityRate(parsed.finalFindings);
-  const localizationAccuracy = calculateLocalizationAccuracy(matches);
-  const usefulMergeRate = calculateUsefulMergeRate(parsed.candidateFindings, matches);
-  const decisionCounts = countRefereeDecisions(parsed.refereeDecisions);
-  const categoryCalibration = calculateCategoryCalibration(parsed.groundTruth, parsed.finalFindings);
+  const metrics = calculateEvalMetrics({
+    groundTruth: parsed.groundTruth,
+    candidateFindings: parsed.candidateFindings,
+    finalFindings: parsed.finalFindings,
+    refereeDecisions: parsed.refereeDecisions
+  });
   const schemaValidRate = 1;
   const runStability = 1;
 
@@ -147,27 +139,24 @@ export function evaluateRepoCouncil(input: unknown): EvalResult {
     fixture_count: parsed.groundTruth.length,
     candidate_findings: parsed.candidateFindings.length,
     final_findings: parsed.finalFindings.length,
-    matched_findings: matches.length,
-    strict_recall: recall,
-    loose_recall: safeDivide(looseMatches.length, parsed.groundTruth.length),
-    precision,
-    recall,
-    f1: calculateF1(precision, recall),
-    noise_rate: safeDivide(falsePositiveCount, parsed.finalFindings.length),
-    duplicate_reduction_rate:
-      parsed.candidateFindings.length === 0
-        ? 0
-        : 1 - safeDivide(parsed.finalFindings.length, parsed.candidateFindings.length),
-    useful_merge_rate: usefulMergeRate,
-    accepted_candidates: decisionCounts.accepted,
-    merged_candidates: decisionCounts.merged,
-    rejected_candidates: decisionCounts.rejected,
-    category_calibration: categoryCalibration,
-    security_recall: categoryRecall.security,
-    correctness_recall: categoryRecall.correctness,
-    testing_recall: categoryRecall.testing,
-    actionability_rate: actionabilityRate,
-    line_localization_accuracy: localizationAccuracy,
+    matched_findings: metrics.strictMatches.length,
+    strict_recall: metrics.strictRecall,
+    loose_recall: metrics.looseRecall,
+    precision: metrics.precision,
+    recall: metrics.recall,
+    f1: metrics.f1,
+    noise_rate: metrics.noiseRate,
+    duplicate_reduction_rate: metrics.duplicateReductionRate,
+    useful_merge_rate: metrics.usefulMergeRate,
+    accepted_candidates: metrics.acceptedCandidates,
+    merged_candidates: metrics.mergedCandidates,
+    rejected_candidates: metrics.rejectedCandidates,
+    category_calibration: metrics.categoryCalibration,
+    security_recall: metrics.securityRecall,
+    correctness_recall: metrics.correctnessRecall,
+    testing_recall: metrics.testingRecall,
+    actionability_rate: metrics.actionabilityRate,
+    line_localization_accuracy: metrics.lineLocalizationAccuracy,
     schema_valid_rate: schemaValidRate,
     run_stability: runStability,
     latency_ms: parsed.metadata.latencyMs ?? 0,
@@ -176,216 +165,17 @@ export function evaluateRepoCouncil(input: unknown): EvalResult {
     output_tokens: parsed.metadata.outputTokens ?? 0,
     publish_success_rate: parsed.metadata.publishSuccess === false ? 0 : 1,
     repocouncil_score: calculateRepoCouncilScore({
-      f1: calculateF1(precision, recall),
-      precision,
-      recall,
+      f1: metrics.f1,
+      precision: metrics.precision,
+      recall: metrics.recall,
       categoryRecallAvg:
-        (categoryRecall.security + categoryRecall.correctness + categoryRecall.testing) / 3,
-      usefulMergeRate,
-      actionabilityRate,
+        (metrics.securityRecall + metrics.correctnessRecall + metrics.testingRecall) / 3,
+      usefulMergeRate: metrics.usefulMergeRate,
+      actionabilityRate: metrics.actionabilityRate,
       schemaValidRate,
       runStability
     })
   };
-}
-
-function matchFindings(
-  groundTruth: EvalGroundTruthIssue[],
-  findings: EvalFinding[]
-): Match[] {
-  const matches: Match[] = [];
-  const usedFindingIds = new Set<string>();
-
-  for (const issue of groundTruth) {
-    const match = findings.find(
-      (finding) => !usedFindingIds.has(finding.id) && findingMatchesIssue(finding, issue)
-    );
-
-    if (match) {
-      usedFindingIds.add(match.id);
-      matches.push({ issue, finding: match });
-    }
-  }
-
-  return matches;
-}
-
-function matchFindingsLoose(
-  groundTruth: EvalGroundTruthIssue[],
-  findings: EvalFinding[]
-): Match[] {
-  const matches: Match[] = [];
-  const usedFindingIds = new Set<string>();
-
-  for (const issue of groundTruth) {
-    const match = findings.find(
-      (finding) => !usedFindingIds.has(finding.id) && findingLooselyMatchesIssue(finding, issue)
-    );
-
-    if (match) {
-      usedFindingIds.add(match.id);
-      matches.push({ issue, finding: match });
-    }
-  }
-
-  return matches;
-}
-
-function findingMatchesIssue(finding: EvalFinding, issue: EvalGroundTruthIssue): boolean {
-  if (finding.file !== issue.file) {
-    return false;
-  }
-
-  const acceptableCategories =
-    issue.acceptableCategories.length > 0 ? issue.acceptableCategories : [issue.category];
-
-  if (!acceptableCategories.includes(finding.category)) {
-    return false;
-  }
-
-  const acceptableSeverities =
-    issue.acceptableSeverities.length > 0 ? issue.acceptableSeverities : [issue.severity];
-
-  if (!acceptableSeverities.includes(finding.severity)) {
-    return false;
-  }
-
-  if (!lineMatches(finding, issue)) {
-    return false;
-  }
-
-  return matchedSignals(finding, issue.expectedSignals) >= Math.min(2, issue.expectedSignals.length);
-}
-
-function findingLooselyMatchesIssue(finding: EvalFinding, issue: EvalGroundTruthIssue): boolean {
-  if (finding.file !== issue.file) {
-    return false;
-  }
-
-  const acceptableCategories =
-    issue.acceptableCategories.length > 0 ? issue.acceptableCategories : [issue.category];
-
-  if (!acceptableCategories.includes(finding.category)) {
-    return false;
-  }
-
-  return matchedSignals(finding, issue.expectedSignals) >= Math.min(1, issue.expectedSignals.length);
-}
-
-function lineMatches(finding: EvalFinding, issue: EvalGroundTruthIssue): boolean {
-  if (!finding.startLine) {
-    return false;
-  }
-
-  const findingEndLine = finding.endLine ?? finding.startLine;
-  const [issueStart, issueEnd] = issue.lineRange;
-
-  return finding.startLine <= issueEnd + 5 && findingEndLine >= issueStart - 5;
-}
-
-function matchedSignals(finding: EvalFinding, expectedSignals: string[]): number {
-  const haystack = [
-    finding.title,
-    finding.body,
-    ...finding.evidence,
-    finding.suggestedPatch ?? "",
-    finding.suggestedTests ?? ""
-  ].join(" ").toLowerCase();
-
-  return expectedSignals.filter((signal) => haystack.includes(signal.toLowerCase())).length;
-}
-
-function countRefereeDecisions(decisions: EvalRefereeDecision[]): {
-  accepted: number;
-  merged: number;
-  rejected: number;
-} {
-  return decisions.reduce(
-    (counts, decision) => ({
-      ...counts,
-      [decision.decision]: counts[decision.decision] + 1
-    }),
-    { accepted: 0, merged: 0, rejected: 0 }
-  );
-}
-
-function calculateCategoryCalibration(
-  groundTruth: EvalGroundTruthIssue[],
-  findings: EvalFinding[]
-): number {
-  if (findings.length === 0) {
-    return 0;
-  }
-
-  const calibrated = findings.filter((finding) =>
-    groundTruth.some((issue) => {
-      const acceptableCategories =
-        issue.acceptableCategories.length > 0 ? issue.acceptableCategories : [issue.category];
-
-      return (
-        finding.file === issue.file &&
-        acceptableCategories.includes(finding.category) &&
-        matchedSignals(finding, issue.expectedSignals) >= Math.min(1, issue.expectedSignals.length)
-      );
-    })
-  ).length;
-
-  return calibrated / findings.length;
-}
-
-function calculateCategoryRecall(
-  groundTruth: EvalGroundTruthIssue[],
-  matches: Match[],
-  category: string
-): number {
-  const categoryIssues = groundTruth.filter((issue) => issue.category === category);
-
-  if (categoryIssues.length === 0) {
-    return 0;
-  }
-
-  const matchedIssueIds = new Set(
-    matches.filter((match) => match.issue.category === category).map((match) => match.issue.id)
-  );
-
-  return matchedIssueIds.size / categoryIssues.length;
-}
-
-function calculateActionabilityRate(findings: EvalFinding[]): number {
-  if (findings.length === 0) {
-    return 0;
-  }
-
-  const actionable = findings.filter(
-    (finding) =>
-      finding.evidence.length > 0 &&
-      (Boolean(finding.suggestedPatch) || Boolean(finding.suggestedTests))
-  ).length;
-
-  return actionable / findings.length;
-}
-
-function calculateLocalizationAccuracy(matches: Match[]): number {
-  if (matches.length === 0) {
-    return 0;
-  }
-
-  const localized = matches.filter((match) => lineMatches(match.finding, match.issue)).length;
-
-  return localized / matches.length;
-}
-
-function calculateUsefulMergeRate(candidateFindings: EvalFinding[], matches: Match[]): number {
-  if (candidateFindings.length === 0) {
-    return 0;
-  }
-
-  const matchedFiles = new Set(matches.map((match) => `${match.issue.file}:${match.issue.category}`));
-  const usefulCandidates = candidateFindings.filter((candidate) =>
-    matchedFiles.has(`${candidate.file}:${candidate.category}`)
-  ).length;
-
-  return usefulCandidates === 0 ? 0 : safeDivide(matches.length, usefulCandidates);
 }
 
 function calculateRepoCouncilScore(input: {
@@ -408,12 +198,4 @@ function calculateRepoCouncilScore(input: {
     0.05 * input.schemaValidRate +
     0.05 * input.runStability
   );
-}
-
-function calculateF1(precision: number, recall: number): number {
-  return precision + recall === 0 ? 0 : (2 * precision * recall) / (precision + recall);
-}
-
-function safeDivide(numerator: number, denominator: number): number {
-  return denominator === 0 ? 0 : numerator / denominator;
 }

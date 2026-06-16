@@ -11,6 +11,7 @@
   "scripts": {
     "build": "npm run build -w @repocouncil/shared && npm run build -w @repocouncil/api && npm run build -w @repocouncil/web",
     "dashboard:mock": "npm run dashboard:mock -w @repocouncil/api",
+    "deploy:check": "npm run deploy:check -w @repocouncil/api",
     "db:generate": "prisma generate --schema apps/api/prisma/schema.prisma",
     "db:migrate": "prisma migrate dev --schema apps/api/prisma/schema.prisma",
     "dev:local": "set NO_PAUSE=1&& start-local.cmd",

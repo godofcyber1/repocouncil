@@ -1,0 +1,6 @@
+[
+  {
+    "path": "src/services/billing.ts",
+    "patch": "@@ -40,6 +40,16 @@ export async function applyDiscount(invoice, input) {\n+  invoice.discountPercent = input.discountPercent;\n+  invoice.discountReason = input.reason;\n+\n+  if (invoice.discountPercent > 90) {\n+    await audit.log({ invoiceId: invoice.id, reason: input.reason });\n+  }\n+\n+  return invoice.save();\n }"
+  }
+]

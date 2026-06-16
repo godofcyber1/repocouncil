@@ -1,0 +1,6 @@
+[
+  {
+    "path": "src/routes/admin-approval.ts",
+    "patch": "@@ -12,6 +12,16 @@ router.post('/admin/articles/:id/approve', requireAuth, async (req, res) => {\n+  const article = await Article.findById(req.params.id);\n+  if (!article) {\n+    return res.status(404).json({ error: 'not found' });\n+  }\n+\n+  article.status = 'approved';\n+  await article.save();\n+\n+  return res.json({ ok: true });\n });"
+  }
+]

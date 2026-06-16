@@ -1,0 +1,6 @@
+[
+  {
+    "path": "apps/api/src/langgraph/referee.ts",
+    "patch": "@@ -120,7 +120,12 @@ function duplicateGroupKey(candidate) {\n-  return `${candidate.file}:${candidate.category}:${candidate.startLine ?? 0}`;\n+  return candidate.file;\n }\n+\n+function groupCandidates(candidates) {\n+  return new Map(candidates.map((candidate) => [duplicateGroupKey(candidate), candidate]));\n+}"
+  }
+]

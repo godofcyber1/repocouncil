@@ -1,0 +1,6 @@
+[
+  {
+    "path": "src/auth/token.ts",
+    "patch": "@@ -10,6 +10,12 @@ export async function issueToken(user) {\n+  const token = await signer.sign({ sub: user.id, role: user.role });\n+  console.log('issued token', token);\n+  return token;\n }"
+  }
+]

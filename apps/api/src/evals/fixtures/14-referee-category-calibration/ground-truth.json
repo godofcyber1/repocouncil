@@ -1,0 +1,22 @@
+{
+  "issues": [
+    {
+      "id": "gt-r3",
+      "title": "Profile update persists unvalidated request body fields",
+      "category": "correctness",
+      "severity": "medium",
+      "file": "src/routes/profile.ts",
+      "lineRange": [30, 42],
+      "expectedSignals": [
+        "displayName",
+        "bio",
+        "req.body",
+        "validation",
+        "allowed"
+      ],
+      "acceptableCategories": ["correctness", "quality"],
+      "acceptableSeverities": ["medium", "high"],
+      "explanation": "This is an input validation defect, not a security finding unless a concrete security boundary is involved."
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+[
+  {
+    "path": "src/routes/profile.ts",
+    "patch": "@@ -30,6 +30,12 @@ router.patch('/profile', requireAuth, async (req, res) => {\n+  const profile = await Profile.findById(req.user.profileId);\n+  profile.displayName = req.body.displayName;\n+  profile.bio = req.body.bio;\n+  await profile.save();\n+\n+  return res.json(profile);\n });"
+  }
+]

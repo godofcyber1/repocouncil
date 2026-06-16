@@ -1,0 +1,7 @@
+[
+  {
+    "path": "AGENTS.md",
+    "role": "guideline",
+    "summary": "Referee duplicate grouping must include issue category, location, and semantic issue identity. It must not merge unrelated findings only because they occur in the same file."
+  }
+]

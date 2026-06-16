@@ -25,7 +25,7 @@ describe("loadEvalInputFromFixtures", () => {
     expect(evalInput.groundTruth).toHaveLength(1);
     expect(evalInput.groundTruth[0]).toEqual(
       expect.objectContaining({
-        id: "gt-001",
+        id: "01-security-webhook-fail-open:gt-001",
         title: "Webhook signature validation fails open",
         file: "apps/api/src/github/webhook.ts",
         lineRange: [42, 48],

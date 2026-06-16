@@ -1,0 +1,7 @@
+[
+  {
+    "path": "AGENTS.md",
+    "role": "guideline",
+    "summary": "Webhook authentication failures must fail closed and must have invalid-signature regression tests that assert 401 and no persistence."
+  }
+]

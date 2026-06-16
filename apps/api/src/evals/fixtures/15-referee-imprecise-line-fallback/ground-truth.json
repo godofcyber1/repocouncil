@@ -1,0 +1,22 @@
+{
+  "issues": [
+    {
+      "id": "gt-r4",
+      "title": "Discount percentage is persisted without bounds validation",
+      "category": "correctness",
+      "severity": "medium",
+      "file": "src/services/billing.ts",
+      "lineRange": [40, 56],
+      "expectedSignals": [
+        "discountPercent",
+        "bounds",
+        "validation",
+        "input",
+        "invoice"
+      ],
+      "acceptableCategories": ["correctness", "quality"],
+      "acceptableSeverities": ["medium", "high"],
+      "explanation": "The finding should survive as a summary-level issue even when the candidate line location is imprecise."
+    }
+  ]
+}

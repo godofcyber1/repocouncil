@@ -1,0 +1,22 @@
+{
+  "issues": [
+    {
+      "id": "gt-t1",
+      "title": "Missing invalid webhook signature regression test",
+      "category": "testing",
+      "severity": "medium",
+      "file": "apps/api/src/github/webhook.ts",
+      "lineRange": [42, 52],
+      "expectedSignals": [
+        "invalid signature",
+        "401",
+        "test",
+        "no persistence",
+        "fail closed"
+      ],
+      "acceptableCategories": ["testing", "security"],
+      "acceptableSeverities": ["medium", "high", "critical"],
+      "explanation": "A webhook signature handling change should include a negative test proving invalid signatures return 401 and do not persist the webhook."
+    }
+  ]
+}

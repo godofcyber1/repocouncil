@@ -1,0 +1,22 @@
+{
+  "issues": [
+    {
+      "id": "gt-c2",
+      "title": "Referee duplicate key groups unrelated issues by file only",
+      "category": "correctness",
+      "severity": "medium",
+      "file": "apps/api/src/langgraph/referee.ts",
+      "lineRange": [120, 132],
+      "expectedSignals": [
+        "duplicate",
+        "group",
+        "file",
+        "category",
+        "unrelated"
+      ],
+      "acceptableCategories": ["correctness", "quality"],
+      "acceptableSeverities": ["medium", "high"],
+      "explanation": "Grouping duplicate findings by file alone can merge unrelated findings and drop true positives."
+    }
+  ]
+}

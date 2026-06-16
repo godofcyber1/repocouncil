@@ -175,6 +175,147 @@ function createSeededFindings(request: ReviewerRequestContext): ReviewFinding[] 
   }
 
   if (
+    (reviewer === "security" || reviewer === "generic") &&
+    changedFiles.some(
+      (file) =>
+        file.path === "src/auth/token.ts" &&
+        file.patch?.includes("console.log") &&
+        file.patch.toLowerCase().includes("token")
+    )
+  ) {
+    findings.push({
+      id: "seeded-security-secret-logging",
+      title: "Authentication token is written to application logs",
+      body:
+        "The changed token issuer logs the signed token with console.log. Tokens are secrets and can become credentials if logs are exposed.",
+      file: "src/auth/token.ts",
+      startLine: 10,
+      endLine: 16,
+      severity: "high",
+      confidence: 0.9,
+      category: "security",
+      evidence: [
+        "Diff adds console.log('issued token', token).",
+        "The logged value is an authentication token and should be treated as a credential secret."
+      ],
+      suggestedPatch: "Remove the token log or replace it with a redacted event that never includes credential material."
+    });
+  }
+
+  if (
+    reviewer === "security" &&
+    changedFiles.some(
+      (file) =>
+        file.path === "src/routes/admin-approval.ts" &&
+        file.patch?.includes("/admin/articles") &&
+        file.patch.includes("approved")
+    )
+  ) {
+    findings.push({
+      id: "seeded-referee-webhook-false-positive",
+      title: "Missing webhook signature verification in admin approval route",
+      body:
+        "The normal authenticated admin API route does not verify a webhook signature before approving articles.",
+      file: "src/routes/admin-approval.ts",
+      startLine: 12,
+      endLine: 28,
+      severity: "medium",
+      confidence: 0.82,
+      category: "security",
+      evidence: [
+        "The route approves articles.",
+        "No webhook payload or delivery signature is involved in this normal API route."
+      ],
+      suggestedPatch:
+        "Do not add webhook signature verification here; authorization should be handled through admin role or permission checks."
+    });
+  }
+
+  if (
+    reviewer === "security" &&
+    changedFiles.some(
+      (file) =>
+        file.path === "src/routes/profile.ts" &&
+        file.patch?.includes("req.body.displayName") &&
+        file.patch.includes("req.body.bio")
+    )
+  ) {
+    findings.push({
+      id: "seeded-referee-category-calibration",
+      title: "Missing validation for profile displayName and bio fields",
+      body:
+        "The profile update persists displayName and bio from req.body without checking allowed length or accepted input values.",
+      file: "src/routes/profile.ts",
+      startLine: 30,
+      endLine: 42,
+      severity: "medium",
+      confidence: 0.86,
+      category: "security",
+      evidence: [
+        "displayName is assigned from req.body.displayName.",
+        "bio is assigned from req.body.bio.",
+        "No validation or allowed length check appears before persistence."
+      ],
+      suggestedPatch: "Validate displayName and bio length and allowed characters before saving the profile."
+    });
+  }
+
+  if (
+    (reviewer === "quality" || reviewer === "generic") &&
+    changedFiles.some(
+      (file) =>
+        file.path === "apps/api/src/langgraph/referee.ts" &&
+        file.patch?.includes("return candidate.file")
+    )
+  ) {
+    findings.push({
+      id: "seeded-correctness-duplicate-key-too-coarse",
+      title: "Duplicate grouping key can merge unrelated findings in the same file",
+      body:
+        "The duplicate key now returns only candidate.file. That can group unrelated security, correctness, and testing findings from the same file and drop true positives during referee arbitration.",
+      file: "apps/api/src/langgraph/referee.ts",
+      startLine: 120,
+      endLine: 132,
+      severity: "medium",
+      confidence: 0.88,
+      category: "correctness",
+      evidence: [
+        "Diff changes duplicateGroupKey to return candidate.file.",
+        "Repository rule requires duplicate grouping to include issue category, location, and semantic identity.",
+        "File-only grouping can merge unrelated findings."
+      ],
+      suggestedPatch:
+        "Include normalized title/category, file, line bucket, and semantic issue kind in the duplicate grouping key."
+    });
+  }
+
+  if (
+    reviewer === "quality" &&
+    changedFiles.some(
+      (file) =>
+        file.path === "src/services/billing.ts" &&
+        file.patch?.includes("discountPercent") &&
+        file.patch.includes("invoice.save")
+    )
+  ) {
+    findings.push({
+      id: "seeded-referee-imprecise-line-fallback",
+      title: "Discount percentage is persisted without bounds validation",
+      body:
+        "The billing service persists input.discountPercent to invoice.discountPercent without validating bounds such as minimum, maximum, or allowed discount policy.",
+      file: "src/services/billing.ts",
+      severity: "medium",
+      confidence: 0.84,
+      category: "correctness",
+      evidence: [
+        "discountPercent is assigned from input.discountPercent.",
+        "No bounds validation appears before invoice.save()."
+      ],
+      suggestedPatch: "Validate discountPercent is within the allowed bounds before saving the invoice."
+    });
+  }
+
+  if (
     reviewer === "quality" &&
     changedFiles.some((file) => file.path === "src/tool-dependent/type-mismatch.ts") &&
     toolSignals.some(
@@ -231,7 +372,41 @@ function createSeededFindings(request: ReviewerRequestContext): ReviewFinding[] 
 
   if (
     reviewer === "test" &&
-    changedFiles.some((file) => file.path === "apps/api/src/langgraph/referee.ts") &&
+    changedFiles.some(
+      (file) =>
+        file.path === "apps/api/src/github/webhook.ts" &&
+        file.patch?.includes("invalid signature") &&
+        file.patch.includes("res.status(401)")
+    )
+  ) {
+    findings.push({
+      id: "seeded-testing-invalid-signature-regression",
+      title: "Missing invalid signature regression test for webhook fail-closed behavior",
+      body:
+        "The webhook signature path changed, but the fixture context does not include a regression test that invalid signatures return 401 and skip persistence.",
+      file: "apps/api/src/github/webhook.ts",
+      startLine: 42,
+      endLine: 52,
+      severity: "medium",
+      confidence: 0.86,
+      category: "testing",
+      evidence: [
+        "Diff changes invalid signature handling.",
+        "The flow still reaches persistWebhook after the signature branch.",
+        "Repository rule requires invalid-signature tests for fail closed behavior."
+      ],
+      suggestedTests:
+        "Add a test where an invalid signature returns 401 and assert persistWebhook is not called."
+    });
+  }
+
+  if (
+    reviewer === "test" &&
+    changedFiles.some(
+      (file) =>
+        file.path === "apps/api/src/langgraph/referee.ts" &&
+        (file.patch?.includes("scoreFindingCandidate") || file.patch?.includes("candidate.evidence.length"))
+    ) &&
     !relatedFiles.some((file) => file.path.endsWith("referee.test.ts"))
   ) {
     findings.push({

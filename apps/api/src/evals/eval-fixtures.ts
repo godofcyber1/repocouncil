@@ -39,10 +39,25 @@ const EvalFixtureChangedFileSchema = z.object({
 
 const EvalFixtureRepositoryFilesSchema = z.array(RepositoryFileContextSchema).default([]);
 const EvalFixtureToolSignalsSchema = z.array(ToolSignalSchema).default([]);
+const EvalFixtureMetadataSchema = z.record(z.unknown()).default({});
 
 const EvalFixtureGroundTruthSchema = z
-  .union([EvalGroundTruthIssueSchema, z.array(EvalGroundTruthIssueSchema)])
-  .transform((value) => (Array.isArray(value) ? value : [value]));
+  .union([
+    EvalGroundTruthIssueSchema,
+    z.array(EvalGroundTruthIssueSchema),
+    z.object({ issues: z.array(EvalGroundTruthIssueSchema) })
+  ])
+  .transform((value) => {
+    if (Array.isArray(value)) {
+      return value;
+    }
+
+    if ("issues" in value) {
+      return value.issues;
+    }
+
+    return [value];
+  });
 
 export type LoadEvalFixturesOptions = {
   fixturesDir: string;
@@ -130,10 +145,18 @@ export async function loadEvalInputFromFixtures(
       graphDeps
     );
 
-    groundTruth.push(...fixture.groundTruth);
-    candidateFindings.push(...graphResult.candidateFindings);
-    finalFindings.push(...graphResult.findings);
-    refereeDecisions.push(...graphResult.refereeDecision.decisions);
+    groundTruth.push(...fixture.groundTruth.map((issue) => namespaceIssue(fixtureName, issue)));
+    candidateFindings.push(...graphResult.candidateFindings.map((finding) => namespaceFinding(fixtureName, finding)));
+    finalFindings.push(...graphResult.findings.map((finding) => namespaceFinding(fixtureName, finding)));
+    refereeDecisions.push(
+      ...graphResult.refereeDecision.decisions.map((decision) => ({
+        ...decision,
+        candidateId: namespaceId(fixtureName, decision.candidateId),
+        ...(decision.mergedIntoId
+          ? { mergedIntoId: namespaceId(fixtureName, decision.mergedIntoId) }
+          : {})
+      }))
+    );
   }
 
   return {
@@ -235,10 +258,11 @@ export async function loadBareEvalInputFromFixtures(
     });
     const parsed = ReviewFindingListSchema.parse(response.data);
 
-    groundTruth.push(...fixture.groundTruth);
+    groundTruth.push(...fixture.groundTruth.map((issue) => namespaceIssue(fixtureName, issue)));
     finalFindings.push(
       ...parsed.findings.map((finding) => ({
         ...finding,
+        id: namespaceId(fixtureName, finding.id),
         reviewer: "bare"
       }))
     );
@@ -261,6 +285,24 @@ export async function loadBareEvalInputFromFixtures(
   };
 }
 
+function namespaceFinding<T extends { id: string }>(fixtureName: string, finding: T): T {
+  return {
+    ...finding,
+    id: namespaceId(fixtureName, finding.id)
+  };
+}
+
+function namespaceIssue<T extends { id: string }>(fixtureName: string, issue: T): T {
+  return {
+    ...issue,
+    id: namespaceId(fixtureName, issue.id)
+  };
+}
+
+function namespaceId(fixtureName: string, id: string): string {
+  return `${fixtureName}:${id}`;
+}
+
 async function listFixtureDirectories(fixturesDir: string): Promise<string[]> {
   const entries = await fs.readdir(fixturesDir, { withFileTypes: true });
 
@@ -277,13 +319,15 @@ async function readFixture(fixtureDir: string): Promise<{
   toolSignals: z.infer<typeof EvalFixtureToolSignalsSchema>;
   groundTruth: EvalGroundTruthIssue[];
 }> {
-  const [prRaw, changedFilesRaw, repositoryFilesRaw, toolSignalsRaw, groundTruthRaw] = await Promise.all([
+  const [prRaw, changedFilesRaw, repositoryFilesRaw, toolSignalsRaw, groundTruthRaw, metadataRaw] = await Promise.all([
     readJsonIfExists(path.join(fixtureDir, "pr.json"), {}),
     readJson(path.join(fixtureDir, "changed-files.json")),
     readJsonIfExists(path.join(fixtureDir, "repository-files.json"), []),
     readJsonIfExists(path.join(fixtureDir, "tool-signals.json"), []),
-    readJson(path.join(fixtureDir, "ground-truth.json"))
+    readJson(path.join(fixtureDir, "ground-truth.json")),
+    readJsonIfExists(path.join(fixtureDir, "metadata.json"), {})
   ]);
+  EvalFixtureMetadataSchema.parse(metadataRaw);
 
   return {
     pr: EvalFixturePrSchema.parse(prRaw),
